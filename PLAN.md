@@ -121,7 +121,9 @@ Jellyfin.Plugin.Concierge/
 │   │   ├── RerankParser.cs        # preference over the shortlist, never a replacement
 │   │   └── ResultExplanation.cs
 │   ├── Subtitles/
-│   │   ├── CueParser.cs           # SRT/VTT/ASS → cues
+│   │   ├── SrtParser.cs           # SRT → cues (Jellyfin converts everything to SRT)
+│   │   ├── CueCleaner.cs          # strip SDH, formatting, speaker prefixes
+│   │   ├── TrackSelector.cs       # MediaStream[] → the one track to index
 │   │   ├── CueWindowing.cs        # cues → overlapping searchable windows
 │   │   └── QuoteMatch.cs          # window hit → item + timestamp + context
 │   ├── Llm/                       # ported from Curator: Batcher, JsonResponse,
@@ -462,39 +464,196 @@ goes; per-query LLM calls are.
 
 ## 6. Quotes (phase 3)
 
-The headline feature, and the one with a real engineering cost.
+The headline feature, and the one with a real engineering cost. Everything in
+this section is measured against the owner's library or verified against the
+10.11.11 assembly — the numbers are real, not estimates.
 
-**Source.** External `.srt`/`.vtt`/`.ass` beside the media, plus embedded text
-subtitle streams. Read via `ISubtitleManager`/`MediaStreams` where they're text;
-forced/SDH tracks are preferred *against* — they carry sound descriptions. One
-language, configurable, default English.
+### 6.1 Where the text comes from
 
-> ⚠️ **To verify.** Whether extraction can be done without ffmpeg shelling out,
-> what the Subtitle Extract plugin already leaves on disk (it's installed on the
-> owner's server and may make this nearly free), and whether image-based subs
-> (PGS/VobSub) are simply out of scope. Assume they are: OCR is a different
-> project.
+**Verified.** `MediaBrowser.Controller.MediaEncoding.ISubtitleEncoder` is in the
+`Jellyfin.Controller` package Concierge already references. **No new
+dependency, no shelling out to ffmpeg ourselves:**
 
-**Windowing.** Cues are 1-2 seconds and useless alone. `CueWindowing` merges
-into ~40-word windows with 50% overlap, each keeping the start timestamp of its
-first cue. A 2-hour film ≈ 1,500 cues ≈ 300 windows.
+```csharp
+Task<Stream> GetSubtitles(
+    BaseItem item, string mediaSourceId, int subtitleStreamIndex,
+    string outputFormat,            // ← always "srt"
+    long startTimeTicks, long endTimeTicks,
+    bool preserveOriginalTimestamps, CancellationToken ct);
 
-**Retrieval, in two stages, and the order is the point:**
+Task ExtractAllExtractableSubtitles(MediaSourceInfo source, CancellationToken ct);
+```
 
-- **3a — BM25 only, no embeddings.** Most quote searches are near-verbatim:
-  people remember the words. Lexical search over subtitle windows nails those,
-  costs nothing to build, adds no storage beyond postings, and can ship long
-  before the vector half. *Do this first and it may be enough.*
-- **3b — vectors, for paraphrase.** *"the one where he says he could have been
-  a contender"* is a paraphrase and needs embeddings. But 300 films × 300
-  windows = 90k vectors, which at 1536×float32 is **550MB** — unshippable.
-  Fix: int8 scalar quantization (**138MB**) plus float32 re-scoring of the top
-  500, or Matryoshka truncation to 512 dims. `Core/Retrieval/Quantization`
-  exists for this. Quote-vector indexing stays **opt-in per library**.
+**Always request `"srt"`.** Jellyfin converts ASS/SSA, `mov_text`, WebVTT and
+external files into it for us, so Concierge parses exactly one format forever.
+This deletes most of what `Core/Subtitles/CueParser` was going to be — the
+multi-format parser in §3.1 is now an SRT parser and a text cleaner.
 
-**Result shape.** A quote hit returns the item, the timestamp, and the
-surrounding lines, and the client deep-links to playback at that position minus
-5 seconds. That is the moment this plugin justifies itself.
+Track selection comes off `IMediaSourceManager.GetMediaStreams(Guid itemId)`,
+which reads the database and touches no disk. `MediaStream` carries exactly the
+predicates needed — all verified present: `IsTextSubtitleStream`,
+`IsExtractableSubtitleStream`, `IsExternal`, `IsForced`, `IsHearingImpaired`,
+`Language`, `Codec`, `Index`, `Path`.
+
+Preference order for choosing one track per item:
+
+1. `IsTextSubtitleStream` — non-negotiable, image subs can't be read.
+2. Language match (default `en`).
+3. **Reject `IsForced`.** A forced track only carries foreign-language lines —
+   a few dozen cues for a whole film. Indexing one looks like success and
+   produces a film that can never be found by anything anyone actually says.
+4. Prefer not `IsHearingImpaired`, but **take SDH if it's the only text track**
+   and strip its annotations (§6.3). SDH is better than nothing by a wide margin.
+5. External over embedded, only because it skips extraction entirely.
+
+### 6.2 Coverage — measured on the owner's library
+
+Counted from `jellyfin.db`, 31 Jul 2026:
+
+| | Movies (213) | Episodes (5,276) |
+|---|---|---|
+| **Text subtitles, English** | **140 (66%)** | **3,882 (74%)** |
+| Image-only (PGS/VobSub) | 60 (28%) | 1,046 (20%) |
+| No subtitles at all | 8 (4%) | 289 (5%) |
+
+**This clears the viability bar** (open question 3 asked for ~60%; the answer is
+66% and 74%). Quote search is worth building.
+
+The 28% image-only gap is real but not our problem to solve with OCR — that's a
+dependency, a GPU, and an error rate. The cheap fix is external subtitle
+download (OpenSubtitles, which Jellyfin already does), which converts image-only
+items into text ones for free. **Concierge's job is to make the gap visible**:
+the Quotes tab reports coverage per library and names the items it cannot index,
+so the owner can fix the 60 films if they care to.
+
+Note also: only 29 external `.srt` files exist on disk for 225 movie files.
+Essentially all of this text is **embedded**, so extraction is the main cost,
+not parsing.
+
+### 6.3 Cleaning
+
+Subtitle text is not prose, and indexing it raw poisons the results:
+
+- HTML/ASS formatting: `<i>`, `{\an8}`, `{\pos(...)}`.
+- SDH annotations: `[door creaks]`, `(SIRENS WAILING)`, `♪ music ♪` — these are
+  descriptions, not dialogue, and they match vibe queries wrongly and loudly.
+- Speaker prefixes: leading `- `, and `VINCENT:` in caps.
+- Duplicate consecutive cues (common in rips), and credits/subtitle-author
+  spam at the head and tail of the file (`Subtitles by …`, `OpenSubtitles`).
+
+Strip all of it. Keep the raw text alongside the cleaned text for display —
+users should see the line as it appeared, and search the line as it means.
+
+### 6.4 Volume — the real constraint is memory, not money
+
+Movies average ~1,300 cues; episodes ~500. At 66%/74% coverage that is roughly
+**182k cues across films and 1.94M across episodes** — 2.1M cues, ~850k windows
+after merging into ~40-word windows at 50% overlap.
+
+Embedding all of it costs about **$0.94** once, and films alone about **$0.08**.
+Cost is not the constraint here and the earlier draft was wrong to imply it was.
+Storage is:
+
+| Scope | float32 ×1536 | int8 ×1536 | int8 ×512 |
+|---|---|---|---|
+| Films only (73k windows) | 448 MB | 112 MB | **37 MB** |
+| Everything (850k windows) | 5.2 GB | 1.3 GB | 437 MB |
+
+**Films at 512-dim int8 fit comfortably; the full library does not.** That
+settles two defaults: quote vectors are films-first, and episodes are opt-in per
+series rather than per library — nobody needs 780k vectors of a sitcom to find
+one line of it.
+
+### 6.5 Retrieval, in three stages, and the order is the whole design
+
+**Stage 1 — phrase search. No embeddings, no model, no cost.**
+People quote *verbatim*: "I'm walking here", "You can't handle the truth". Exact
+and near-exact phrase matching answers those perfectly, and it is the cheapest
+thing in the entire plugin. It should ship long before anything semantic, and it
+may well be enough.
+
+The design fork worth deciding early is what backs the index:
+
+- **SQLite FTS5** — disk-backed, native phrase queries (`"i'm walking here"`),
+  BM25 built in, ~40% of source size on disk, no RAM ceiling, and it handles
+  2.1M cues without complaint. It is a **dependency** (rule 13 says ask), but
+  Playback Reporting ships SQLite into this very server, so the pattern is
+  established and the risk is low. *This is my recommendation.*
+- **Hand-rolled positional index** — no dependency, consistent with the item
+  index, and fine for the 73k film windows. It gets uncomfortable at 850k and
+  it means writing phrase matching, tokenization, and on-disk postings by hand.
+
+Films-only makes the hand-rolled option viable. Wanting episodes makes FTS5 the
+honest answer.
+
+**Stage 2 — fuzzy, for misremembered quotes.** People quote wrong: *"Luke, I am
+your father"* is not a line in any Star Wars film. Character-trigram similarity
+over the phrase index catches near-misses for free, before spending anything.
+
+**Stage 3 — semantic, for genuine paraphrase.** *"the one where he says he could
+have been a contender"* needs embeddings, at films-only/512-int8 (§6.4).
+
+**And one trick that outperforms all of stage 3 for pennies:** when the query is
+a *description* of a line rather than the line itself, have the plan pass
+**generate two or three literal phrasings** of what the character probably said,
+and run those through stage 1. *"the one where the guy says he's not smart but
+he knows what love is"* → `"I'm not a smart man"` → exact hit. This is HyDE
+applied to dialogue, it costs one small call already in the pipeline, and it
+turns paraphrase into a phrase-search problem instead of a vector problem.
+
+### 6.6 Extraction is the expensive part — treat it as such
+
+`GetSubtitles` on an **embedded** stream shells out to ffmpeg internally, takes
+seconds to a minute per file, and writes into Jellyfin's subtitle cache. Across
+~4,000 items that is hours of CPU and gigabytes of cache. Therefore:
+
+- Extraction is a **throttled background task with a persistent cursor**, never
+  part of a query, never part of the item index build. Concurrency 1-2. It must
+  survive restart and resume, because it will be interrupted (installing any
+  plugin tears the host down mid-task — Curator learned this expensively).
+- **Staleness key is (stream index, path, file size, mtime)**, so a re-index is
+  free and a re-encoded file re-extracts.
+- The **Subtitle Extract plugin is already installed on this server but idle**
+  (`ExtractionDuringLibraryScan=false`, no libraries selected). Enabling it
+  front-loads the whole job outside Concierge. If it has run, external `.srt`
+  files exist and Concierge's work drops to parsing. Detect and prefer that.
+- Do the **films first, always.** 140 items is a job that finishes in minutes and
+  makes the feature demonstrable; 3,882 episodes is an overnight job.
+
+### 6.7 Result shape
+
+A quote hit returns the item, the matched line, the surrounding two or three
+lines as context, and the timestamp — and the client deep-links to playback at
+that position minus 5 seconds.
+
+One honest caveat to surface in the UI: **external subtitle files are sometimes
+out of sync** with the file they sit beside. Embedded tracks are reliable;
+externals can be seconds off, and a deep link to the wrong moment is the most
+visible way this feature can fail. Prefer embedded timestamps when both exist.
+
+### 6.8 Scripts
+
+Screenplays are a different source with a different trade, and they are **not
+phase 3**.
+
+Against: they are not time-aligned, so they cannot deep-link without extra work;
+coverage is poor and skewed to famous films; and the sources are legally grey in
+a way subtitles sitting in the user's own files are not.
+
+For: a script contains what subtitles structurally cannot — **scene
+descriptions, action, and speaker attribution**. *"the scene where they walk
+through the kitchen in one shot"* is in a script and in no subtitle file.
+
+If it is ever wanted, the tractable version is: align script dialogue to the
+subtitle cues by longest-common-subsequence over normalized lines, which
+recovers both timestamps *and* speaker names for the script's dialogue. That
+would let Concierge answer *"where does Vincent say…"* — speaker attribution is
+the real prize, and alignment is how you get it without trusting the script's
+own timing.
+
+Cheaper interim: SDH tracks sometimes carry `VINCENT:` prefixes, and the
+re-ranker can infer the speaker from context for the handful of results a user
+actually sees. Do that before touching scripts.
 
 ---
 
@@ -641,11 +800,17 @@ Each phase ends in something installable and useful on its own.
   p95 latency recorded per query.
 
 ### Phase 3 — quotes *(the reason anyone will install it)*
-- `CueParser`, `CueWindowing`, subtitle discovery.
-- 3a: BM25 over windows. 3b: quantized vectors, opt-in.
-- Timestamped results, deep-link to playback position.
+- `TrackSelector`, `SrtParser`, `CueCleaner`, `CueWindowing` — all pure, all
+  testable against a handful of real subtitle files committed as fixtures.
+- Throttled, resumable extraction task over `ISubtitleEncoder` (§6.6).
+  **Films first** — 140 items, minutes, demonstrable.
+- 3a: phrase search only, no embeddings, no model. 3b: literal-phrasing
+  generation in the plan pass. 3c: quantized vectors, films-only, opt-in.
+- Timestamped results, deep-link to playback minus 5s.
+- Coverage reporting in the Quotes tab, naming what can't be indexed.
 - **Done when:** 20 known quotes from the owner's library resolve to the right
-  film *and* the right minute.
+  film *and* the right minute — and phase 3a alone is measured before 3c is
+  written, because it may make 3c unnecessary.
 
 ### Phase 4 — durability
 - Health check (pure, shy — copy Curator's discipline: a panel that cries wolf
@@ -733,6 +898,8 @@ Curator, where each was learned expensively; the rest are specific to search.
     packages at runtime, xUnit in tests. No vector database, no ANN library, no
     tokenizer package, no ML runtime — brute force is fast enough at these sizes
     and every one of those is a support burden the owner would carry alone.
+    **One open exception:** SQLite/FTS5 for the subtitle index (§6.5), which is
+    a real decision with a real case behind it, not a drift.
 
 ---
 
@@ -750,9 +917,12 @@ Ordered by how much a wrong answer costs.
    specifically* — surviving client updates and Jellyfin's SPA routing — is
    unverified. If it's fragile, the fallback is a dedicated Concierge page plus a
    keyboard shortcut, which is worse but entirely under our control.
-3. **Do subtitles exist for enough of the library to make phase 3 real?** Count
-   before building. Below ~60% coverage, quote search is a feature that fails
-   most of the time it's tried, which is worse than not having it.
+3. ~~**Do subtitles exist for enough of the library?**~~ **Answered, measured
+   (§6.2): 66% of films and 74% of episodes have English text subtitles.** Above
+   the viability bar. What replaces it: **does quote search index episodes at
+   all?** 850k windows against 73k is the difference between a hand-rolled index
+   and a SQLite FTS5 dependency (§6.5), and that decision is owed before phase 3
+   starts.
 4. **Episodes in the index?** They're where dialogue and specific plots actually
    live, but 15× the vectors and a results list that can drown a series in its
    own episodes. Probably: series indexed by default, episodes opt-in, and
