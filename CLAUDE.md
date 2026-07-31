@@ -78,6 +78,17 @@ The three that get broken first, by anyone moving fast:
    search they have today.
 3. **Retrieval is free.** No model call ever goes in `Core/Retrieval`.
 
+## Prior art — read it first
+
+[Franciskid/jellyfin-plugin-ai-search](https://github.com/Franciskid/jellyfin-plugin-ai-search)
+already implements much of phases 1-2: local embedding index, ~40 candidates,
+chat model picks from the shortlist and explains, injected client script,
+OpenAI-compatible endpoints. It reached rule 1 independently. **`PLAN.md` §1.1
+covers what to adopt from it and where Concierge genuinely differs.**
+
+It is **GPL-3.0**: read it for patterns and API usage, never copy code unless
+Concierge becomes GPL-3.0 too. Same rule Curator applies to SmartLists.
+
 ## Relationship to Curator
 
 `/home/levi/jellyfin-curator` is the sibling plugin, running live on a 10.11.11

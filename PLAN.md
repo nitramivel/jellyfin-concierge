@@ -42,6 +42,73 @@ share no state, and take no dependency in either direction.
 
 ---
 
+### 1.1 Prior art — `jellyfin-plugin-ai-search`
+
+[Franciskid/jellyfin-plugin-ai-search](https://github.com/Franciskid/jellyfin-plugin-ai-search)
+(GPL-3.0, created 5 Jul 2026, actively developed, ~3.4k lines of C#) already
+does a substantial part of what phases 1-2 of this plan describe, and it does it
+well. Read it before writing any of them.
+
+**It independently arrived at the same core architecture**, which is strong
+evidence the architecture is right: a local embedding index over item documents,
+~40 candidates retrieved per query, a chat model that picks from the shortlist
+and explains its picks, injected client script, any OpenAI-compatible endpoint,
+nightly incremental re-embedding. It even landed on the same `MaxRetrieve = 40`.
+
+Most striking, from its `PromptBuilder`:
+
+> *"The model only ever picks by index from the CANDIDATES list, which keeps it
+> from inventing titles that are not in the library."*
+
+That is rule 1, reached independently. Two projects converging on it separately
+is about as good as design validation gets.
+
+**Four things it does that this plan had wrong or missing**, all adopted:
+
+1. **Asymmetric embedding prefixes** (`EmbeddingQueryPrefix` /
+   `EmbeddingDocumentPrefix`). `bge-m3`, E5, and `nomic-embed-text` are trained
+   with distinct prefixes for queries versus passages, and omitting them
+   degrades retrieval **silently** — nothing errors, results are just quietly
+   worse. This plan had no notion of it. See §5.1.
+2. **Patching `index.html` directly** as the no-dependency injection path —
+   backed up, idempotent, removed on plugin stop. See §7.
+3. **The index refuses to load when built by a different embedding model**
+   (`IsUsable(target.Model)`), which is exactly rule 9 — independently confirmed
+   as a real hazard rather than a theoretical one.
+4. **Retrieval scoped to `allowedIds`** so per-user visibility is enforced
+   during scoring rather than filtered afterwards. Correct for multi-user
+   servers and cheaper besides.
+
+**Where this plan genuinely differs** — these are the reasons to build Concierge
+rather than file issues against that project:
+
+| | ai-search | Concierge |
+|---|---|---|
+| Document source | raw overview + genres + cast | **+ enrichment / generated `asks`** (§5.2) |
+| Lexical retrieval | none — pure vector | **BM25 + RRF** (§4.4-4.5) |
+| Free path for short queries | none; every search calls a model | **router** (§4.2) |
+| Structured filters from prose | none | year / runtime / watch-state (§4.3) |
+| Cost governance | none | budget, cache, rate limit, profiles (§8) |
+| Model configuration | one flat model | **Curator's profile system** (§3.3) |
+| Dialogue / quotes | none | §6 |
+| Quality measurement | none in repo | evaluation set (§10) |
+
+The two biggest are **enrichment** and **quotes**. Pure-vector search over raw
+overviews is precisely the configuration whose failure §5.2 demonstrates on John
+Wick, and no Jellyfin plugin currently searches dialogue at all.
+
+**Licensing: it is GPL-3.0.** Read it for patterns and API usage; **never copy
+code** unless Concierge is itself GPL-3.0, which is a decision the owner has not
+made. Same discipline Curator applies to SmartLists.
+
+**A fair question worth answering before phase 2, not after:** given the
+overlap, is contributing enrichment and hybrid retrieval upstream a better use
+of effort than reimplementing them? The honest case for building separately
+rests on quotes, the cost model, and the profile system — not on the parts that
+already exist and work.
+
+---
+
 ## 2. Why the current search fails
 
 Jellyfin's search is a **substring match with ranking**. `/Search/Hints` and
@@ -438,6 +505,17 @@ Overview is the whole thing, not Curator's 300-character cut — truncating befo
 embedding stores a compression of the first paragraph forever with nothing
 downstream able to tell. (Curator hit exactly this with condensed summaries.)
 
+**Asymmetric prefixes are not optional.** `bge-m3`, the E5 family, and
+`nomic-embed-text` are trained with a marker distinguishing a query from a
+passage — typically `query: ` and `passage: ` — and using the wrong one, or
+neither, degrades retrieval **with no error and no symptom** beyond results
+being quietly worse. `EmbeddingProfile` therefore carries `QueryPrefix` and
+`DocumentPrefix`, defaulted per known model and overridable, and the pair is
+recorded in `state.json` alongside the model: changing a prefix invalidates the
+index exactly as changing the model does, because every stored vector was
+written under the old one. Adopted from `jellyfin-plugin-ai-search`, which
+carries both settings (§1.1).
+
 ### 5.2 Enrichment — the pass that makes plot recall actually work
 
 **This is the most important section in the plan and it was missing from the
@@ -812,6 +890,15 @@ if it's missing, log one clear line and carry on. The API still works. Never
 throw out of injection. (Curator's integrations follow this rule and it has paid
 for itself.)
 
+**Fallback when File Transformation is absent: patch `index.html` directly**,
+the way `jellyfin-plugin-ai-search` does — write a marked `<script>` block into
+the web root at startup, back the original up, make it idempotent, and remove it
+on plugin stop. It needs no dependency and it is genuinely simpler. The costs
+are real though: the web root is read-only in some container setups, a server
+update overwrites it, and recreating the container reverts it. So it is the
+fallback, not the default — and it must degrade to "the API still works" when
+the write fails, which is exactly how that project handles it.
+
 > ⚠️ **To verify.** File Transformation's exact registration payload
 > (`FilenamePattern` + callback assembly/class/method, per its controller), and
 > whether the injected script survives a client update. Read the plugin's own
@@ -1021,9 +1108,12 @@ Curator, where each was learned expensively; the rest are specific to search.
 8. **Filters fail open.** A structured filter that would empty the results is
    demoted to a ranking signal instead. Fewer than 12 survivors means the cut
    was wrong, not the library.
-9. **The embedding model and dimensionality are part of the index's identity.**
-   Recorded in `state.json`; changing either invalidates the whole index. Mixed
-   vectors don't error — they just rank garbage.
+9. **The embedding model, its dimensionality, and its query/document prefixes
+   are part of the index's identity.** Recorded in `state.json`; changing any of
+   them invalidates the whole index. Mixed vectors don't error — they just rank
+   garbage. `jellyfin-plugin-ai-search` enforces the model half of this with
+   `IsUsable(model)` and refuses to load a mismatched index, which is the right
+   shape: refuse, don't degrade.
 10. **Log tokens and estimated cost for every query.** Cache reads are charged,
     not free; a provider reporting cached tokens inside its input count has them
     subtracted before costing, or the total understates by ~25%.
@@ -1056,6 +1146,14 @@ Curator, where each was learned expensively; the rest are specific to search.
 ## 12. Open questions
 
 Ordered by how much a wrong answer costs.
+
+0. **Build, or contribute to `jellyfin-plugin-ai-search`?** (§1.1) That project
+   already implements roughly phases 1-2, is GPL-3.0, and is actively developed.
+   The differentiators that survive the comparison are enrichment, hybrid
+   retrieval, cost governance, the profile system, and quotes — the last of
+   which nothing in the ecosystem does. Answer this before phase 2, because
+   phase 2 is where the duplicated effort actually lands; phase 1's index and
+   evaluation harness are worth building either way.
 
 1. **How good is the free path, really?** If BM25 + vectors + fusion answers 80%
    of the evaluation set, phase 2's re-rank is a polish step and the whole cost
