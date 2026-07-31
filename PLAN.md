@@ -283,13 +283,20 @@ profile's.
 defaults, and folds pre-profile scalars into one profile the first time it sees
 an empty list.
 
-**The pass assignments.** Concierge has three, where Curator has three:
+**The pass assignments.** Concierge has four, where Curator has three — and the
+fourth is the one that most rewards a *different* choice from the others:
 
-| Setting | Pass | Wants |
-|---|---|---|
-| `PlanModelProfileId` | sentence → `SearchPlan` | small, fast, structured-output capable |
-| `RerankModelProfileId` | order the shortlist + explain | mid-tier; this is where quality shows |
-| `EmbeddingProfileId` | documents and queries → vectors | an embedding model (separate list, below) |
+| Setting | Pass | When | Wants |
+|---|---|---|---|
+| `PlanModelProfileId` | sentence → `SearchPlan` | per query | small, fast, structured-output capable — Haiku-tier |
+| `RerankModelProfileId` | order the shortlist + explain | per query | mid-tier; this is where quality shows — Sonnet-tier |
+| `EnrichmentModelProfileId` | item → premise, moments, `asks` | **index time, once** | **the best model available** — see §5.5 |
+| `EmbeddingProfileId` | documents and queries → vectors | index + query | an embedding model (separate list, below) |
+
+The split between the first two and the third is the whole economic argument of
+this design: the per-query passes should be as cheap as quality allows because
+they run forever, and the index-time pass should be as good as affordable
+because it runs once and sets the recall ceiling.
 
 Blank means *follow the default profile* on every one of them — blank is a real
 value, not unset, and an install that has configured nothing must behave
@@ -333,6 +340,50 @@ sibling.
 `OpenAiCompatible` is what makes the local option free: Ollama, LM Studio, and
 vLLM all serve `/v1/embeddings`, so a local embedding model is a profile with a
 base URL and no new code.
+
+**Which models actually work — chat passes.** Any model reachable through the
+five ported providers. Structured output is required for the plan pass and
+strongly wanted for the re-rank, which narrows the practical set:
+
+| Provider | Plan pass | Re-rank pass | Notes |
+|---|---|---|---|
+| **Anthropic** | Haiku 4.5 | Sonnet 5 / Opus 5 | Structured outputs on Opus 5, Opus 4.8, Sonnet 5, Haiku 4.5. Recommended default pair. |
+| **OpenAI** | a mini-tier model | a mid-tier model | Native structured outputs. |
+| **Google** | a Flash-tier model | a Pro-tier model | Needs explicit `propertyOrdering` — Curator learned this the hard way. |
+| **xAI Grok** | ✅ | ✅ | OpenAI-shaped; caching is automatic but server-affine (Curator's `x-grok-conv-id` trick). |
+| **OpenAI-compatible** | Ollama / LM Studio / vLLM / OpenRouter | same | Free locally; structured-output support varies by server *and* model — verify before trusting the schema. |
+
+**Three Anthropic-specific traps for a latency-sensitive search box**, all
+current as of 31 Jul 2026:
+
+- **Opus 5 thinks by default.** Omitting the `thinking` parameter runs adaptive
+  thinking — unlike Opus 4.8/4.7, where omitting it meant no thinking. For a
+  2.5s search budget that is a silent latency and cost regression. It also
+  matters for truncation: `max_tokens` caps thinking *and* answer together.
+  Disabling it is only legal at effort `high` or below; `{type: "disabled"}`
+  with `xhigh`/`max` is a 400.
+- **`temperature`, `top_p`, and `top_k` are rejected** on Opus 5, Opus 4.8/4.7,
+  and (non-default values) Sonnet 5. Steer with prompting instead.
+- **`budget_tokens` is gone.** Use `{type: "adaptive"}` plus
+  `output_config.effort`. *Curator's `AnthropicProvider` already emits
+  `{type: "adaptive"}` and sends no sampling parameters*, so the port is clean —
+  but `ModelProfile.Thinking` must map to adaptive-vs-disabled, never to a
+  token budget.
+
+**Which models work for embeddings — and the one that doesn't.** This is the
+asymmetry that justifies the separate profile list above: **Anthropic has no
+embeddings endpoint.** Its supporting endpoints are Batches, Files, Token
+Counting, and Models — there is no `/v1/embeddings`. An `EmbeddingProfile`
+therefore cannot point at Anthropic, and the config page should not offer it as
+an option rather than letting someone select it and get a 404.
+
+| Embedding source | Notes |
+|---|---|
+| **OpenAI** | `text-embedding-3-small` — cheap, 1536 dims, supports Matryoshka truncation to 512 (§6.4). The default. |
+| **Google** | Gemini embedding models, via the native path. |
+| **Voyage** | What Anthropic itself points to for embeddings; strong retrieval quality. |
+| **Local (OpenAI-compatible)** | `bge-m3`, `nomic-embed-text`, E5 via Ollama / LM Studio / vLLM. Free, private, and **requires the query/document prefixes** (§5.1). |
+| **Anthropic** | ❌ Not available. |
 
 **`ILlmProviderFactory` and `IEmbeddingProviderFactory` are interfaces, and
 orchestration takes the interfaces.** Not the concrete factories. That seam is
@@ -586,11 +637,16 @@ problem, and it is how *"the one where they kill the guy's dog"* finds John Wick
 This is a known IR technique (doc2query / query generation); it is unusually
 well-suited here because the corpus is small, static, and famous.
 
-**Why this is affordable:** 213 films × one call ≈ **$0.05-0.20 total, once**,
-on a cheap model. Incremental after that — a new film costs one call. It adds
-~9 vectors per item instead of 1, which for the owner's library is ~1,900
-vectors, i.e. nothing. Compare that to paying for retrieval quality on every
-single query forever.
+**Why this is affordable — and why to spend up here.** At ~400 input and ~400
+output tokens per film, 213 films costs **$0.51 on Haiku 4.5, $1.02 on Sonnet 5,
+$2.55 on Opus 5** — once. (An earlier draft said $0.05-0.20; that was too low.)
+
+Because the absolute number is a couple of dollars, **enrichment is the one pass
+where the best available model is obviously correct.** It runs once, its output
+is cached forever, and its quality sets the recall ceiling for every future
+query. Spending 5× here to save 5× on a per-query pass would be exactly
+backwards. It adds ~9 vectors per item instead of 1 — ~1,900 vectors for this
+library, i.e. nothing.
 
 **Three things this must get right:**
 
@@ -659,10 +715,13 @@ here because nothing errors.
 | | Owner's library (213 films) | 10k-item library |
 |---|---|---|
 | Embedding documents + `asks` | ~$0.005 | ~$0.25 |
-| **Enrichment pass** (1 cheap call/item) | **~$0.05-0.20** | ~$3-10 |
-| **Total, once** | **under $0.25** | under $10 |
+| **Enrichment pass**, Haiku 4.5 | **~$0.51** | ~$24 |
+| **Enrichment pass**, Opus 5 | **~$2.55** | ~$120 |
+| **Total, once** (Opus 5 enrichment) | **~$2.60** | ~$120 |
 
 Incremental thereafter — a newly added film costs one call and nine embeddings.
+The 10k-item column is why enrichment is a **setting**, not a hard-wired step:
+at that size the model choice is a real decision rather than pocket change.
 
 Embedding is not where the money goes. Enrichment is a real but one-time cost,
 and it buys recall on **every future query**, which is the trade this whole
@@ -908,7 +967,8 @@ the write fails, which is exactly how that project handles it.
 template literals, `class="emby-input"`, JSON bodies in `data` not `content`,
 escape everything interpolated):
 
-- **Model** — the profile list and the per-pass pickers (plan / rerank), built
+- **Model** — the profile list and the three per-pass pickers (plan / rerank /
+  enrichment, the last with its own projected one-time cost), built
   exactly like Curator's: an in-memory `modelProfiles` + `activeProfileId`, an
   editor showing one profile at a time, and `captureProfileEditor()` called
   before *anything* that changes the selection or the outgoing profile's edits
@@ -937,19 +997,47 @@ spends money on a schedule the owner controls. Concierge spends it when someone
 types — which is unbounded, unpredictable, and can be triggered by a stranger
 with an account.
 
-**Per-query budget, measured in advance:**
+**Per-query budget, at real list prices** (Anthropic, checked 31 Jul 2026 —
+Haiku 4.5 $1/$5 per MTok, Sonnet 5 $3/$15 with a $2/$10 introductory rate
+through 2026-08-31, Opus 5 $5/$25):
 
-| Step | Tokens (est.) | Cheap model | Mid model |
-|---|---|---|---|
-| Plan | 600 in / 120 out | ~$0.0003 | ~$0.002 |
-| Rerank (40 items) | 3,500 in / 600 out | ~$0.0015 | ~$0.012 |
-| Embed query | 20 in | ~$0.0000004 | — |
-| **Total** | | **~$0.002** | **~$0.014** |
+| Step | Tokens (est.) | Haiku 4.5 | Sonnet 5 (intro) | Opus 5 |
+|---|---|---|---|---|
+| Plan | 600 in / 120 out | $0.0012 | $0.0024 | $0.0060 |
+| Re-rank (40 items) | 3,500 in / 600 out | $0.0065 | $0.0130 | $0.0325 |
+| Embed query | ~20 in | ~$0 | ~$0 | ~$0 |
+| **Total per paid query** | | **$0.008** | **$0.015** | **$0.039** |
 
-At 50 searches/day that's $3/month cheap, $21/month mid. **Both passes default
-to the cheap profile**, and the config page must show the projected monthly
-number next to the model picker, because that is the number people actually
-decide on.
+> ⚠️ **This corrects the plan's first draft**, which put a cheap query at
+> ~$0.002 — off by about 4× because the re-rank pass's 3,500 input tokens were
+> costed as though they were a few hundred. The recommended split is **Haiku 4.5
+> for the plan pass and Sonnet 5 for the re-rank**, at **~$0.014 per paid
+> query**.
+
+The monthly number depends far more on the **router** (§4.2) than on the model.
+At 50 searches a day with the router sending ~30% to a model, that's ~15 paid
+queries/day:
+
+| Configuration | Per month |
+|---|---|
+| All Haiku 4.5 | **~$3.60** |
+| Haiku plan + Sonnet 5 re-rank *(recommended)* | **~$6.30** |
+| All Opus 5 | ~$17.50 |
+| Router disabled, all Sonnet 5 (50/day) | ~$21 |
+
+The config page must show the projected monthly number next to the model picker
+— that is the number people actually decide on — and it must state the router
+assumption behind it, since that assumption moves the answer more than the model
+choice does.
+
+**Prompt caching helps less here than in Curator, and the minimum is a trap.**
+The re-rank prompt's stable prefix is only the system prompt and instructions;
+the 40-candidate list changes every query, so there is no large reusable block.
+Worse, the minimum cacheable prefix is **not monotonic across models** — 512
+tokens on Opus 5, 1024 on Sonnet 5, but **4096 on Haiku 4.5**. A compact plan
+prompt on Haiku will never cache at all, silently, with no error and
+`cache_creation_input_tokens: 0`. Do not budget for cache savings on the cheap
+path.
 
 **Controls, all of which degrade rather than fail:**
 
