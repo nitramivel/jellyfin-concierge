@@ -103,7 +103,10 @@ Jellyfin.Plugin.Concierge/
 │   ├── Documents/
 │   │   ├── ItemDocument.cs        # BaseItem projection → the indexed text
 │   │   ├── DocumentHash.cs        # staleness key; what makes rebuilds free
-│   │   └── FieldWeights.cs        # title vs. cast vs. overview, one place
+│   │   ├── FieldWeights.cs        # title vs. cast vs. overview, one place
+│   │   ├── EnrichmentPromptBuilder.cs  # "how would someone half-remember this?"
+│   │   ├── EnrichmentParser.cs    # must accept "I don't know this one"
+│   │   └── Enrichment.cs          # premise, moments, themes, asks, spoiler flag
 │   ├── Retrieval/
 │   │   ├── Bm25Index.cs           # postings + scoring, in-memory, no deps
 │   │   ├── Tokenizer.cs           # fold case/diacritics, split, stem-lite
@@ -371,7 +374,14 @@ only if someone shows up with a 200k-item library.
 **Filters.** Applied over the candidate set from `Core/Query/FilterApplication`.
 
 All three run concurrently. Retrieval is free and stays free — no model is
-called in this step, ever.
+called in this step, ever. The enrichment pass (§5.2) is what it retrieves
+*over*; its cost was paid once at index time.
+
+**Collapse before fusing.** An item owns several vector rows — its document and
+each generated `ask` — so the vector search returns rows, not items. Reduce to
+one hit per item, taking its best-scoring row, *before* handing anything to
+fusion. Skip this and one thoroughly enriched film takes eight of the top ten
+slots.
 
 ### 4.5 Fuse
 
@@ -428,24 +438,137 @@ Overview is the whole thing, not Curator's 300-character cut — truncating befo
 embedding stores a compression of the first paragraph forever with nothing
 downstream able to tell. (Curator hit exactly this with condensed summaries.)
 
-### 5.2 Staleness
+### 5.2 Enrichment — the pass that makes plot recall actually work
+
+**This is the most important section in the plan and it was missing from the
+first draft.**
+
+Measured on the owner's library (31 Jul 2026): all 213 films have an overview,
+median ~252 characters / ~50 words. So the raw material exists. The problem is
+what it *says*.
+
+Take the canonical query — *"that movie where the guy is the subject of a live
+TV show"*:
+
+> **The Truman Show (1998).** *"In a picture-perfect seaside town, an insurance
+> salesman begins to realize that his entire existence may be staged and
+> observed by a vast unseen audience as part of a long-running real-time reality
+> TV show."*
+
+That one is a slam dunk. "guy" ↔ "insurance salesman", "subject of" ↔ "staged
+and observed by a vast unseen audience", "live TV show" ↔ "real-time reality TV
+show". No shared keywords beyond *TV* and *show*, which is precisely why the
+vector half exists — BM25 alone would rank Groundhog Day ("a cynical TV
+weatherman") right alongside it.
+
+Now the failure, from the same library:
+
+> **John Wick (2014).** *"Ex-hitman John Wick comes out of retirement to track
+> down the gangsters that took everything from him."*
+
+*"the one where they kill the guy's dog"* — the single most memorable thing
+about that film — **misses completely**. Nothing in that sentence is in the
+overview, semantically or lexically.
+
+The pattern generalizes: **overviews describe the premise; people remember
+moments, images, and specifics.** Oppenheimer's overview is a Wikipedia stub
+about the Manhattan Project. Ready Player One's doesn't mention the 80s. This
+isn't bad metadata — it's what marketing copy is *for*, and it's spoiler-averse
+on purpose.
+
+**The fix is one LLM pass at index time, and it is cheap because it happens
+once.** Same shape as Curator's summary distillation — the mirror image of it,
+in fact. Curator *condenses* overviews to get at tone; Concierge *expands* them
+to get at searchability.
+
+For each item, one call produces:
+
+```jsonc
+{
+  "premise":  "…",                    // what the overview should have said
+  "moments":  ["…"],                  // the images people actually remember
+  "themes":   ["identity", "surveillance", "…"],
+  "asks":     [                       // ← the important one
+    "the movie where a guy's whole life is secretly a TV show",
+    "the one where he sails to the edge of the world and hits a wall",
+    "film about a man who doesn't know he's on camera"
+  ],
+  "spoiler":  true                    // does any of this give away the ending?
+}
+```
+
+`asks` is doing the heavy lifting, and it's the technique that makes this work:
+**generate the queries, not just the document.** Ask the model *"how would
+someone who half-remembers this film describe it to a friend?"*, store 6-10 such
+phrasings, embed each one, and index them pointing back at the item. Now the
+user's fuzzy sentence is being matched against *other fuzzy sentences about the
+same film* rather than against marketing copy — which is a far easier matching
+problem, and it is how *"the one where they kill the guy's dog"* finds John Wick.
+
+This is a known IR technique (doc2query / query generation); it is unusually
+well-suited here because the corpus is small, static, and famous.
+
+**Why this is affordable:** 213 films × one call ≈ **$0.05-0.20 total, once**,
+on a cheap model. Incremental after that — a new film costs one call. It adds
+~9 vectors per item instead of 1, which for the owner's library is ~1,900
+vectors, i.e. nothing. Compare that to paying for retrieval quality on every
+single query forever.
+
+**Three things this must get right:**
+
+- **Spoilers are indexed but never displayed.** *"the one where Bruce Willis is
+  dead the whole time"* has to work, so the twist must be in the index. It must
+  not appear in the result card. Store enrichment fields separately from
+  display fields, flag them, and render only what's safe.
+- **The model's world knowledge is the point, and it's also the risk.** This
+  pass works because the model has seen these films. For an obscure or brand-new
+  title it will have nothing, and a model with nothing to say **invents**. The
+  prompt must permit "I don't know this one" and the parser must accept an empty
+  enrichment rather than storing a hallucinated plot. An invented `asks` entry is
+  worse than none: it is a permanent wrong answer sitting in the index.
+- **Enrichment is a cache, exactly like Curator's summaries.** Stored beside the
+  index, never written back to the library, and deleting it degrades search
+  without damaging anything (rule 6).
+
+**One reframing this makes obvious, and it should shape the whole pipeline:**
+
+> Retrieval's job is **recall** — get the right item into the shortlist.
+> Re-ranking's job is **precision** — and the re-ranker already knows these
+> films.
+
+A model looking at 40 candidates knows perfectly well which one is the dog
+movie. It doesn't need the overview to say so. So every failure of the kind
+above is a *recall* failure, not a reasoning failure, and enrichment exists
+purely to fix recall. That is also why §10's evaluation set must measure
+**recall@40 separately from recall@1** — they fail for different reasons and
+have different fixes.
+
+### 5.3 Staleness
 
 `DocumentHash` is a hash of the rendered document text. An item whose hash is
-unchanged is never re-embedded. This is what makes a nightly rebuild cost
-approximately nothing and a metadata refresh cost only the items that actually
-changed. Same pattern as Curator's `SummaryPlan`, same reason.
+unchanged is never re-embedded, and enrichment is keyed the same way. This is
+what makes a nightly rebuild cost approximately nothing and a metadata refresh
+cost only the items that actually changed. Same pattern as Curator's
+`SummaryPlan`, same reason — and the same trap: hash the *source* text, so a
+metadata refresh can never leave an enrichment describing the wrong film.
 
-### 5.3 Storage
+### 5.4 Storage
 
 `data/concierge/`:
 
 | File | Contents |
 |---|---|
 | `vectors.bin` | packed float32 (or int8, subtitles), row-major |
-| `docs.json` | row → `{ itemId, hash, fields }` |
+| `docs.json` | row → `{ itemId, hash, fields, vectorRows[] }` |
+| `enrichment.json` | per item: premise, moments, themes, `asks`, spoiler flag |
 | `lexical.json` | BM25 postings + doc lengths |
 | `state.json` | index generation, model + dims used, last build |
 | `runs/*.json` | one file per query: plan, candidates, prompts, cost |
+
+One item now owns **several** vector rows — its document plus each `ask` — so
+`docs.json` maps item → rows and retrieval collapses multiple hits on one item
+down to its best-scoring row before fusion. Forgetting to collapse would let a
+well-enriched film occupy eight of the top ten slots.
 
 Atomic temp-file-then-rename on every write. **The embedding model and its
 dimensionality are recorded in `state.json`, and changing either invalidates the
@@ -453,12 +576,20 @@ whole index** — vectors from two models are not comparable and mixing them
 produces silently garbage rankings, which is the worst failure mode available
 here because nothing errors.
 
-### 5.4 Cost of building it
+### 5.5 Cost of building it
 
-300 items × ~250 tokens = 75k tokens. On `text-embedding-3-small`
-(~$0.02/1M) that is **$0.0015** for a full build, and near zero for incremental
-ones. Even a 10k-item library is ~$0.05 once. Embedding is not where the money
-goes; per-query LLM calls are.
+| | Owner's library (213 films) | 10k-item library |
+|---|---|---|
+| Embedding documents + `asks` | ~$0.005 | ~$0.25 |
+| **Enrichment pass** (1 cheap call/item) | **~$0.05-0.20** | ~$3-10 |
+| **Total, once** | **under $0.25** | under $10 |
+
+Incremental thereafter — a newly added film costs one call and nine embeddings.
+
+Embedding is not where the money goes. Enrichment is a real but one-time cost,
+and it buys recall on **every future query**, which is the trade this whole
+design is built around: pay once at index time so the per-query path can stay
+small and cheap.
 
 ---
 
@@ -779,6 +910,10 @@ Each phase ends in something installable and useful on its own.
 
 ### Phase 1 — retrieval, no UI *(the hard part, and it's free)*
 - `ItemDocument`, `DocumentHash`, `IndexStore`, `IndexBuildTask`.
+- **The enrichment pass (§5.2)** — it is index-time, not query-time, so it
+  belongs here despite calling a model. Build the baseline both ways: overviews
+  only, then enriched. The delta between those two numbers is the single most
+  useful measurement in the project.
 - `IEmbeddingProvider` + OpenAI-compatible implementation (covers OpenAI,
   Ollama, LM Studio in one class).
 - `Bm25Index`, `VectorIndex`, `RankFusion`, `QueryRouter`.
@@ -838,9 +973,16 @@ with a hand-labelled correct answer, in four groups:
 3. **Constraints** — "90s sci-fi under two hours I haven't seen".
 4. **Should-not-be-Concierge** — "blade", "the of" — router says native.
 
-Metrics: recall@1, recall@5, MRR, cost/query, p95 latency. Recorded in
-`eval/results-<phase>.md` and **committed**, so a prompt change that improves
-one query and quietly breaks four is visible instead of anecdotal.
+Metrics: **recall@40, recall@5, recall@1**, MRR, cost/query, p95 latency.
+Recorded in `eval/results-<phase>.md` and **committed**, so a prompt change that
+improves one query and quietly breaks four is visible instead of anecdotal.
+
+**Recall@40 is the diagnostic that tells you what to fix**, and it must be read
+separately from the rest (§5.2). If the right film isn't in the top 40, the
+re-ranker never sees it and no amount of prompt work will recover it — that is a
+retrieval problem, and the lever is enrichment. If it *is* in the top 40 but
+lands at rank 12, that is a ranking problem and the lever is the re-rank prompt.
+Two different failures that look identical from the results page.
 
 This is the thing most likely to be skipped and the thing most likely to decide
 whether the plugin is good. Search quality is not assessable by vibes — every
@@ -900,6 +1042,14 @@ Curator, where each was learned expensively; the rest are specific to search.
     and every one of those is a support burden the owner would carry alone.
     **One open exception:** SQLite/FTS5 for the subtitle index (§6.5), which is
     a real decision with a real case behind it, not a drift.
+14. **Enrichment may not invent, and enrichment is never displayed raw.** The
+    index-time pass (§5.2) works because the model knows these films; for one it
+    doesn't know, it must be allowed to say so and the parser must store nothing
+    rather than a plausible fiction. A hallucinated `ask` is a permanent wrong
+    answer that costs nothing to create and is invisible until someone searches
+    for it. Separately: enrichment carries spoilers on purpose, so result cards
+    render only display fields — never `moments`, never a spoiler-flagged
+    premise.
 
 ---
 
