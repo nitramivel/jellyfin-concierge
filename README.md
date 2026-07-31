@@ -67,25 +67,51 @@ semantic result you trust and one that just feels like a guess.
 **Quotes** *(later)*: subtitles get indexed too, so *"I'm walking here!"* finds
 the film **and the timestamp**, and playback starts five seconds before the line.
 
+### The part that makes it actually work
+
+Film overviews describe the *premise*; people remember *moments*. John Wick's
+overview says "ex-hitman comes out of retirement to track down the gangsters that
+took everything from him" — so *"the one where they kill the guy's dog"* finds
+nothing, even with perfect semantic search.
+
+So when Concierge builds its index it also asks a model, once per film, *"how
+would someone who half-remembers this describe it?"* — and indexes those
+phrasings too. Your fuzzy sentence then gets matched against **other fuzzy
+sentences about the same film** instead of against marketing copy. That's the
+difference between a demo and something you'd actually use.
+
 ## 💸 What it costs
 
-Roughly **$0.002 per natural-language search** on a cheap model — and most
-searches never reach a model at all. There's a monthly cap, and when you hit it
-Concierge quietly falls back to the free keyword+semantic path instead of
-breaking.
+**~1.4¢ per natural-language search** (a small model reads the sentence, a
+mid-sized one ranks the results) — and most searches never reach a model at all,
+because anything that looks like a title goes straight to Jellyfin's own search
+for free. Figure **$4–7/month** for a household.
 
-Embeddings can run locally against Ollama or LM Studio, in which case the index
-costs nothing and no library data leaves the house.
+Building the index costs **a couple of dollars, once.**
+
+There's a monthly cap, and when you hit it Concierge quietly falls back to the
+free keyword+semantic path instead of breaking. Embeddings can run locally
+against Ollama or LM Studio, in which case the index costs nothing and no library
+data leaves the house.
 
 ## 📊 Status
 
-**Planning.** No code yet. [`PLAN.md`](PLAN.md) is the full execution plan —
-architecture, phases, hard rules, cost model, and the open questions that could
-still change the design.
+**Planning — no code yet.** [`PLAN.md`](PLAN.md) is the full execution plan:
+architecture, phases, fourteen hard rules, the cost model, and the open questions
+that could still change the design. It's grounded rather than speculative — the
+subtitle coverage, API surface, and cost figures in it were measured against a
+real library and the real 10.11.11 assemblies, and where something couldn't be
+verified it says so.
 
 Concierge is the second plugin in a pair; [Curator](https://github.com/nitramivel/jellyfin-curator)
-is running against a live 10.11.11 server and its provider stack, release
+is running against a live 10.11.11 server, and its provider stack, release
 process, and hard-won Jellyfin lessons are the foundation this one is built on.
+
+**Prior art:** [jellyfin-plugin-ai-search](https://github.com/Franciskid/jellyfin-plugin-ai-search)
+already does a good chunk of this and is worth your attention if you want
+something installable today. `PLAN.md` §1.1 covers what Concierge takes from it
+and where the two genuinely differ — chiefly the enrichment step above, hybrid
+keyword+semantic retrieval, and dialogue search.
 
 ## 🗺️ Roadmap
 

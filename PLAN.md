@@ -5,9 +5,20 @@ A Jellyfin plugin that replaces substring search with a natural-language one:
 tattoos"* should return **Memento**, and *"I'm walking here!"* should return
 **Midnight Cowboy** at 01:04:12.
 
-This document is the execution plan. It is written to be argued with — every
-number in it is a guess until measured, and the places where a guess would be
-expensive to get wrong are called out as such.
+This document is the execution plan. It is written to be argued with.
+
+> **Status:** complete and ready to build against, as of 31 July 2026. No code
+> exists yet — phase 0 (§9) is the starting point, and **open question 0 (§12)
+> should be answered first.**
+>
+> **What is measured vs. assumed.** Subtitle coverage (§6.2), overview quality
+> (§5.2), and library volumes come from the owner's actual server. The
+> `ISubtitleEncoder` surface (§6.1) and the Jellyfin package dependencies were
+> verified by reflecting over the real 10.11.11 assemblies. Model IDs and prices
+> (§3.3, §8) are current as of that date. **Everything about retrieval quality is
+> unmeasured** — no embedding has been generated and no query has been run. Every
+> ⚠️ block marks something still to verify, and §12 lists what could still change
+> the design.
 
 ---
 
@@ -207,7 +218,8 @@ Jellyfin.Plugin.Concierge/
 │   ├── Indexing/
 │   │   ├── IndexBuildTask.cs      # IScheduledTask, daily
 │   │   ├── ItemIndexer.cs         # scan → documents → embeddings → store
-│   │   ├── SubtitleIndexer.cs     # phase 3
+│   │   ├── EnrichmentService.cs   # the one index-time paid pass (§5.2)
+│   │   ├── SubtitleIndexer.cs     # phase 3; throttled, resumable (§6.6)
 │   │   └── IIndexStore.cs / IndexStore.cs
 │   ├── Llm/                       # ported: ILlmProvider + Anthropic/Google/
 │   │                              #   OpenAI/Grok/compatible, TransientHttpRetry,
@@ -479,15 +491,30 @@ Notes that matter:
 
 **Lexical (BM25).** ~250 lines of pure C#, no dependency. Indexes the item
 document with per-field weighting: title ×4, original title ×3, people ×2,
-genres/tags/studio ×1.5, overview ×1. Catches everything semantic search is bad
-at — proper nouns, rare names, exact titles, actor names. Non-negotiable: a pure
-vector system fails embarrassingly on *"the one with Toni Collette"*.
+genres/tags/studio ×1.5, overview ×1, enrichment text (§5.2) ×1. Catches
+everything semantic search is bad at — proper nouns, rare names, exact titles,
+actor names. Non-negotiable: a pure vector system fails embarrassingly on *"the
+one with Toni Collette"*.
 
 **Vector.** Cosine similarity of the query embedding against a packed
-`float[itemCount * dims]`. Brute force. For a 10k-item library at 1536 dims
-that is 61MB and one pass is ~15ms — an ANN index (HNSW) is a dependency and a
-correctness risk bought to solve a problem this plugin does not have. Revisit
-only if someone shows up with a 200k-item library.
+`float[rowCount * dims]`. Brute force, no ANN index — HNSW is a dependency and a
+correctness risk bought to solve a problem this plugin does not have.
+
+**Size the array by rows, not items** — enrichment gives each item ~9 rows (its
+document plus each generated `ask`), so the naive item-count estimate is off by
+an order of magnitude:
+
+| Library | Rows | float32 ×1536 | int8 ×512 |
+|---|---|---|---|
+| Owner's (213 films) | ~1,900 | **12 MB** | 1 MB |
+| 1k items | ~9,000 | 55 MB | 5 MB |
+| 10k items | ~90,000 | **553 MB** ✗ | **46 MB** |
+
+Full-fidelity vectors are comfortable to about 1k items and unshippable at 10k.
+So `MaxAsksPerItem` and the embedding dimensionality are both **settings**, and
+a large library turns one or both down — the same quantization lever §6.4 needs
+for subtitles, reached for one tier earlier than expected. A scan of 90k rows is
+still only ~30ms; memory is the constraint here, never speed.
 
 **Filters.** Applied over the candidate set from `Core/Query/FilterApplication`.
 
@@ -1049,6 +1076,14 @@ path.
 4. **Per-user rate limit** — N paid queries per hour, per user.
 5. **Kill switches** — re-rank off, plan off; both leave a working plugin.
 
+**Enrichment is budgeted separately, and this matters.** It is an index-time
+cost, not a query cost, and it must **not** draw down `MonthlyBudgetUsd` —
+otherwise a first full index build exhausts the month's budget and disables
+search the day someone installs the plugin, which is the worst possible first
+impression. Give it its own `EnrichmentBudgetUsd` ceiling, show the projected
+one-time cost before the build starts, and require confirmation above a
+threshold. The spend ledger records both, and the run log distinguishes them.
+
 **Latency budget**, which is a hard product constraint:
 
 | | Target | Ceiling |
@@ -1179,9 +1214,13 @@ Curator, where each was learned expensively; the rest are specific to search.
    delayed by anything here. If Concierge is broken, misconfigured, out of
    budget, or the model is down, the user gets exactly the search they have
    today.
-3. **Retrieval is free; only planning and re-ranking cost money.** No model call
-   ever goes in `Core/Retrieval`. Any feature that would put one there needs a
-   deliberate decision, not a refactor.
+3. **Query-time retrieval is free. Money is spent in exactly three named
+   places** — the plan pass, the re-rank pass, and the index-time enrichment
+   pass — and nowhere else. No model call ever goes in `Core/Retrieval`, and no
+   model call is added to the query path without a deliberate decision. The
+   asymmetry is the design: the two per-query passes run forever and should be
+   as cheap as quality allows; enrichment runs once and should be as good as
+   affordable (§5.5).
 4. **Every paid path has a free degradation, and it is never an error.** Budget
    exhausted, provider down, key wrong, rate limited — all of these serve fused
    retrieval results. A search box that returns an error message is a broken
@@ -1260,9 +1299,10 @@ Ordered by how much a wrong answer costs.
    and a SQLite FTS5 dependency (§6.5), and that decision is owed before phase 3
    starts.
 4. **Episodes in the index?** They're where dialogue and specific plots actually
-   live, but 15× the vectors and a results list that can drown a series in its
-   own episodes. Probably: series indexed by default, episodes opt-in, and
-   quote hits roll up to the series with the episode named.
+   live, but the owner's 5,276 episodes at ~9 enrichment rows each is ~47k
+   vectors — 290MB at full fidelity (§4.4) — plus a results list that can drown
+   a series in its own episodes. Probably: series indexed by default, episodes
+   opt-in, and quote hits roll up to the series with the episode named.
 5. **Multi-user privacy.** Watch-state filters make results per-user. Query logs
    record what people searched for. Decide early whether the run log is
    admin-visible per user or anonymized — retrofitting privacy is painful.

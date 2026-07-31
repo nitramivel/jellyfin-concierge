@@ -19,6 +19,11 @@ writes to the library. Reject feature requests that amount to "add a filter UI."
 first code to write is the plugin skeleton and the model profile system
 (`PLAN.md` §3.3 and §9 phase 0).
 
+**Before writing any code, answer open question 0** (`PLAN.md` §12): whether to
+build this at all, or contribute the differentiating parts upstream to
+`jellyfin-plugin-ai-search`. Phase 0 and phase 1 are worth building either way;
+phase 2 is where duplicated effort would land.
+
 ## Development commands
 
 The .NET 9 SDK is installed per-user and is **not on `PATH` by default**:
@@ -69,14 +74,16 @@ Full layout in `PLAN.md` §3.1.
 
 ## Hard rules
 
-The twelve invariants live in **`PLAN.md` §11** and are not repeated here.
+The fourteen invariants live in **`PLAN.md` §11** and are not repeated here.
 The three that get broken first, by anyone moving fast:
 
 1. **The model never sees Jellyfin GUIDs** — batch-local integer indexes only.
 2. **Native search never gets slower or worse.** Concierge is additive. If it is
    broken, out of budget, or the provider is down, the user gets exactly the
    search they have today.
-3. **Retrieval is free.** No model call ever goes in `Core/Retrieval`.
+3. **Money is spent in exactly three named places** — the plan pass, the re-rank
+   pass, and index-time enrichment. Query-time retrieval is free, and no model
+   call ever goes in `Core/Retrieval`.
 
 ## Prior art — read it first
 
