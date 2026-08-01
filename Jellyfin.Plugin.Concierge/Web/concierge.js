@@ -98,7 +98,10 @@
         if (!el) {
             el = document.createElement('div');
             el.id = CONTAINER_ID;
-            el.className = 'verticalSection concierge-section';
+            // This is the exact outer shape used by Jellyfin Enhanced's working
+            // "Discover on Seerr" search row. The scroller-container class is not
+            // ornamental: Jellyfin scopes part of the card-row layout through it.
+            el.className = 'verticalSection emby-scroller-container concierge-section';
         }
 
         position(el, page);
@@ -128,6 +131,22 @@
         if (before && before.parentNode) {
             if (el.nextElementSibling !== before || el.parentNode !== before.parentNode) {
                 before.parentNode.insertBefore(el, before);
+            }
+
+            return;
+        }
+
+        // Jellyfin's empty-search state is the reliable landmark when there are no
+        // native Movies/Shows sections. Jellyfin Enhanced inserts "Discover on
+        // Seerr" beside this node. Appending to #searchPage instead puts the row
+        // outside the padded results layout, which collapses the cards into the
+        // raw, full-width text list seen in the browser.
+        var noResults = page.querySelector('.noItemsMessage');
+
+        if (noResults && noResults.parentNode) {
+            if (el.previousElementSibling !== noResults
+                    || el.parentNode !== noResults.parentNode) {
+                noResults.parentNode.insertBefore(el, noResults.nextSibling);
             }
 
             return;
@@ -195,7 +214,7 @@
             : 'background:rgba(127,127,127,.18);';
         var href = escapeHtml(itemLink(itemId));
 
-        return '<div class="card overflowPortraitCard card-hoverable concierge-card">'
+        return '<div class="card overflowPortraitCard card-hoverable card-withuserdata concierge-card">'
             + '<div class="cardBox cardBox-bottompadded">'
             + '<div class="cardScalable">'
             + '<div class="cardPadder cardPadder-overflowPortrait"></div>'
@@ -221,7 +240,8 @@
         return '<h2 class="sectionTitle sectionTitle-cards focuscontainer-x padded-left padded-right'
             + ' concierge-heading">' + heading + '</h2>'
             + '<div is="emby-scroller" data-horizontal="true" data-centerfocus="card"'
-            + ' class="padded-top-focusscale padded-bottom-focusscale concierge-scroller">'
+            + ' class="padded-top-focusscale padded-bottom-focusscale emby-scroller'
+            + ' concierge-scroller">'
             + '<div is="emby-itemscontainer"'
             + ' class="focuscontainer-x itemsContainer scrollSlider concierge-row">'
             + cards + '</div></div>';

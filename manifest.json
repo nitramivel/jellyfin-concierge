@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.11.1.0",
+        "changelog": "Fixes Concierge results rendering as a raw full-width text list when Jellyfin has no native matches. The row now uses the same empty-state placement and complete native scroller/card structure as Jellyfin Enhanced's working Discover on Seerr section.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.1.0/concierge_0.11.1.0.zip",
+        "checksum": "715036e5ab0338398e668ca320c66ce4",
+        "timestamp": "2026-08-01T12:37:58Z"
+      },
+      {
         "version": "0.11.0.0",
         "changelog": "Search results now use Jellyfin native horizontal rows with two-line explanations. Native title lookups no longer get a duplicate Concierge row. Paid searches wait for a settled query, Enter runs immediately, and stale or duplicate in-flight results cannot repaint the page.",
         "targetAbi": "10.11.11.0",

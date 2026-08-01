@@ -157,10 +157,29 @@ namespace Jellyfin.Plugin.Concierge.Tests
         [Fact]
         public void ResultsUseTheNativeHorizontalSearchRowShape()
         {
+            Assert.Contains(
+                "verticalSection emby-scroller-container concierge-section",
+                Script,
+                StringComparison.Ordinal);
             Assert.Contains("is=\"emby-scroller\"", Script, StringComparison.Ordinal);
             Assert.Contains("data-horizontal=\"true\"", Script, StringComparison.Ordinal);
+            Assert.Contains(
+                "padded-bottom-focusscale emby-scroller",
+                Script,
+                StringComparison.Ordinal);
             Assert.Contains("itemsContainer scrollSlider concierge-row", Script, StringComparison.Ordinal);
+            Assert.Contains("card-withuserdata concierge-card", Script, StringComparison.Ordinal);
             Assert.DoesNotContain("vertical-wrap concierge-row", Script, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void EmptyNativeSearchUsesTheSameLandmarkAsDiscoverOnSeerr()
+        {
+            Assert.Contains("page.querySelector('.noItemsMessage')", Script, StringComparison.Ordinal);
+            Assert.Contains(
+                "noResults.parentNode.insertBefore(el, noResults.nextSibling)",
+                Script,
+                StringComparison.Ordinal);
         }
 
         [Fact]
