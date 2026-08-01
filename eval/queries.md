@@ -6,25 +6,40 @@ that wrote this file could not read the library (see *Why these are blank*
 below). Filling it in is a one-evening job and it is the thing that turns every
 future prompt change from a guess into a measurement.
 
-Fill `Expected` with the title you would be annoyed not to see. One answer per
-query where there is an obvious one; two or three where the question genuinely
-has several right answers. Leave a query out entirely if nothing in the library
-fits — a query with no correct answer measures nothing.
+Fill `Expected` with the title you would be annoyed not to see. **Separate
+several acceptable answers with a semicolon** — commas turn up inside titles far
+too often to use (*Crouching Tiger, Hidden Dragon*). One answer where there is an
+obvious one; two or three where the question genuinely has several. Leave a query
+blank if nothing in the library fits: an unanswerable query measures nothing, and
+the harness skips blanks rather than scoring them as misses.
+
+Matching is loose, so `Se7en` finds `Se7en (1995)` and the reverse. You do not
+need to reproduce Jellyfin's exact title string.
 
 ## How to run it
 
-```bash
-# Index first. Costs money once; watch the log line for what it spent.
-curl -X POST "$JELLYFIN/ScheduledTasks/Running/ConciergeIndexBuild" -H "X-Emby-Token: $KEY"
+Build the index first — once, and it costs money:
 
-# Then each query.
-curl -X POST "$JELLYFIN/Concierge/Search" -H "X-Emby-Token: $KEY" \
-     -H 'Content-Type: application/json' \
-     -d '{"Query":"nostalgic 90s classics","Limit":40}'
+```
+Dashboard → Scheduled Tasks → Build the Concierge search index
 ```
 
-Record the rank of the expected item in each result list. Rank 0 means it never
-appeared. Then write the numbers into `results-phase1.md`.
+Then run the whole set in one command:
+
+```bash
+python3 eval/run-eval.py --url http://192.168.1.9:8096 --key "$JELLYFIN_API_KEY"
+```
+
+It runs every labelled query through `POST /Concierge/Search`, finds where each
+expected title landed, and overwrites `results-phase1.md` with recall@40,
+recall@5, recall@1 and MRR per group, the router split, cost, latency, a row per
+query, and a list of the misses. Standard library only — it runs on the server
+with nothing installed.
+
+`--dry-run` parses the file and stops, which is the quick way to check your
+edits before spending anything.
+
+An API key comes from **Dashboard → API Keys**.
 
 **Read recall@40 separately from recall@1.** If the right film never reaches the
 top 40, the re-ranker will never see it and no amount of prompt work in phase 2

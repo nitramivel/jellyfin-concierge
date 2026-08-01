@@ -23,6 +23,14 @@ broken.
 
 ## Running it
 
+```bash
+python3 eval/run-eval.py --url http://192.168.1.9:8096 --key "$JELLYFIN_API_KEY"
+```
+
+`run-eval.py` reads `queries.md`, runs each labelled query against the live
+plugin, and writes `results-phase1.md` itself. It talks to the same HTTP endpoint
+a client would, so what it measures is what a user would actually get.
+
 Each phase records its numbers in `results-<phase>.md` and **commits them**:
 
 - **recall@40**, recall@5, recall@1, MRR
