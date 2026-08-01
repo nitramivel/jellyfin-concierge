@@ -6,6 +6,8 @@ using Jellyfin.Plugin.Concierge.Services.Library;
 using Jellyfin.Plugin.Concierge.Services.Llm;
 using Jellyfin.Plugin.Concierge.Services.Quotes;
 using Jellyfin.Plugin.Concierge.Services.Runs;
+using Jellyfin.Plugin.Concierge.Services.Web;
+using Microsoft.AspNetCore.Hosting;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
@@ -54,6 +56,11 @@ namespace Jellyfin.Plugin.Concierge
             // reading every extracted track off disk.
             serviceCollection.AddSingleton<QuoteIndexProvider>();
             serviceCollection.AddSingleton<SubtitleIndexer>();
+
+            // Adds one script tag to the web client's index page and serves the
+            // script. The client half only ever touches nodes it created, so it
+            // sits alongside whatever else already owns that page.
+            serviceCollection.AddSingleton<IStartupFilter, ScriptInjector>();
 
             serviceCollection.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, IndexBuildTask>();
             serviceCollection.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, SubtitleExtractTask>();

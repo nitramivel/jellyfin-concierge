@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Configuration\configPage.html" />
+    <EmbeddedResource Include="Web\concierge.js" />
   </ItemGroup>
 
   <ItemGroup>
