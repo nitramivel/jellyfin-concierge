@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "1.0.0.0",
-        "changelog": "Concierge results now appear in Jellyfin's own search box, below the native ones, with the reason each matched and timestamps for quoted lines. Built to coexist with whatever else owns that page: the client script only ever touches nodes it created, and every injection failure path serves the original page untouched.",
+        "version": "0.10.0.0",
+        "changelog": "Results render as poster cards and sit above the Jellyseerr rows. Replaces the withdrawn 1.0.0.0 \u2014 that number claimed a quality gate the plugin has not passed.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v1.0.0.0/concierge_1.0.0.0.zip",
-        "checksum": "132ceefe40787cbc15c38bd3fc8cdd8e",
-        "timestamp": "2026-08-01T10:13:30Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.10.0.0/concierge_0.10.0.0.zip",
+        "checksum": "7ca01092a7a2e4323ab06d5f2978bb0d",
+        "timestamp": "2026-08-01T10:30:34Z"
       },
       {
         "version": "0.9.0.0",

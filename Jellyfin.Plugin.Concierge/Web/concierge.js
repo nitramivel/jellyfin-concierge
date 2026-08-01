@@ -9,9 +9,10 @@
  * how one silently wipes the other, and breaking a feature somebody uses for one
  * they are still evaluating is a bad trade.
  *
- * So: every element here carries a "concierge-" prefix, everything is appended,
- * and nothing outside our own container is ever cleared, replaced, or reordered.
- * If our section is missing we add it; we never assume it is the only thing there.
+ * So: every element here carries a "concierge-" prefix, and nothing outside our
+ * own container is ever cleared, replaced, or reordered. We move our own node to
+ * sit above theirs and read theirs only to find the landmark. If our section is
+ * missing we add it; we never assume it is the only thing there.
  */
 (function () {
     'use strict';
@@ -29,16 +30,21 @@
      * our own prefix and inherits the theme's colours rather than declaring its
      * own, so it looks native in whichever theme is active. */
     var STYLES =
-        '#concierge-results .concierge-heading{font-size:1.2em;margin:0 0 .4em;}' +
-        '#concierge-results .concierge-note{opacity:.65;font-size:.85em;font-weight:400;}' +
-        '#concierge-results .concierge-degraded{margin-top:.5em;}' +
-        '#concierge-results .concierge-list{display:flex;flex-direction:column;}' +
-        '#concierge-results .concierge-hit{display:block;padding:.5em .2em;text-decoration:none;' +
-        'color:inherit;border-bottom:1px solid rgba(127,127,127,.18);}' +
-        '#concierge-results .concierge-hit:hover{background:rgba(127,127,127,.12);}' +
-        '#concierge-results .concierge-title{font-weight:600;}' +
-        '#concierge-results .concierge-year{opacity:.6;}' +
-        '#concierge-results .concierge-why{display:block;font-size:.86em;opacity:.72;margin-top:.15em;}';
+        // Card size, spacing and hover all come from the client's own card rules.
+        // Only what is genuinely ours is declared here: the reason line, the
+        // timestamp badge, and the degraded note.
+        '#concierge-results .concierge-why{opacity:.72;font-size:.86em;white-space:normal;' +
+        'padding:0 .4em;}' +
+        '#concierge-results .concierge-note{opacity:.6;font-size:.7em;font-weight:400;}' +
+        '#concierge-results .concierge-degraded{opacity:.65;font-size:.85em;' +
+        'margin:.4em 0 0 .8em;}' +
+        // Declared rather than inherited: the timestamp is positioned against the
+        // poster, and if the client's own cardImageContainer ever stops being a
+        // positioned ancestor the stamp would fly to the corner of the page.
+        '#concierge-results .cardImageContainer{position:relative;}' +
+        '#concierge-results .concierge-stamp{position:absolute;right:.4em;bottom:.4em;' +
+        'background:rgba(0,0,0,.72);color:#fff;border-radius:.25em;padding:.1em .4em;' +
+        'font-size:.78em;}';
 
     function ensureStyles() {
         if (document.getElementById('concierge-styles')) {
@@ -81,38 +87,138 @@
             return null;
         }
 
-        var existing = page.querySelector('#' + CONTAINER_ID);
-        if (existing) {
-            return existing;
+        var el = page.querySelector('#' + CONTAINER_ID);
+
+        if (!el) {
+            el = document.createElement('div');
+            el.id = CONTAINER_ID;
+            el.className = 'verticalSection emby-scroller-container concierge-section';
         }
 
-        var el = document.createElement('div');
-        el.id = CONTAINER_ID;
-        el.className = 'concierge-section verticalSection';
-        el.style.margin = '1.5em 0';
-
-        // Appended to the end of the page, after whatever else is already there.
-        // Deliberately not inserted at a computed position: that would depend on
-        // the order other plugins add their own sections, which is not ours to
-        // reason about.
-        page.appendChild(el);
+        position(el, page);
         return el;
     }
 
-    function itemLink(hit) {
-        return '#/details?id=' + encodeURIComponent(hit.ItemId);
+    /* Concierge results are things you OWN, so they belong with the rest of your
+     * library and above anything offering things you do not. Appending to the end
+     * of the page put them below four rows of Jellyseerr discovery, which is
+     * exactly backwards.
+     *
+     * The landmark is ".jellyseerr-section" — read out of Jellyfin Enhanced 12.0.0.0
+     * rather than guessed, along with the fact that it REMOVES and recreates that
+     * node on every keystroke and re-positions itself after the last Movies/Shows
+     * section. So the anchor is re-queried on every render; holding a reference to
+     * it would mean holding a node that has already been thrown away.
+     *
+     * This still obeys the one rule: insertBefore moves OUR node, and reads theirs
+     * only to find a landmark. Nothing of theirs is modified.
+     *
+     * There is no fight over the slot. They position once per search, then their
+     * observer disconnects; ours runs on every render and lands ~20s later, so we
+     * settle above them and stay there. */
+    function position(el, page) {
+        var before = page.querySelector('.jellyseerr-section');
+
+        if (before && before.parentNode) {
+            if (el.nextElementSibling !== before || el.parentNode !== before.parentNode) {
+                before.parentNode.insertBefore(el, before);
+            }
+
+            return;
+        }
+
+        // No Seerr section yet — sit after the native results instead of at the
+        // end of the page, so we are in the right place before it arrives rather
+        // than visibly jumping when it does.
+        var after = lastNativeSection(page);
+
+        if (after && after.parentNode) {
+            if (el.previousElementSibling !== after) {
+                after.parentNode.insertBefore(el, after.nextSibling);
+            }
+
+            return;
+        }
+
+        var results = page.querySelector(
+            '.searchResults, [class*="searchResults"], .padded-top.padded-bottom-page');
+        var parent = results || page;
+
+        if (el.parentNode !== parent) {
+            parent.appendChild(el);
+        }
+    }
+
+    function lastNativeSection(page) {
+        var sections = page.querySelectorAll(
+            '.verticalSection:not(.jellyseerr-section):not(#' + CONTAINER_ID + ')');
+
+        return sections.length ? sections[sections.length - 1] : null;
+    }
+
+    function itemLink(id) {
+        return '#/details?id=' + encodeURIComponent(id);
+    }
+
+    function posterUrl(itemId) {
+        if (!window.ApiClient || !window.ApiClient.getImageUrl) {
+            return '';
+        }
+
+        try {
+            return window.ApiClient.getImageUrl(itemId, { type: 'Primary', maxHeight: 330 });
+        } catch (e) {
+            return '';
+        }
+    }
+
+    /* Jellyfin's own card markup rather than a list. The search page is made of
+     * poster cards, and a bare text list on it reads as something bolted on —
+     * which is what the owner saw.
+     *
+     * This class combination is copied from Jellyfin Enhanced's Jellyseerr cards,
+     * which demonstrably render correctly on this exact client build — a proven
+     * combination beats one invented from reading the CSS. Sizing, spacing and
+     * hover come from the client's own rules, so these track the theme instead of
+     * drifting from it. The classes are the client's; we only ever put them on
+     * elements we created ourselves. */
+    function card(itemId, title, why, stamp) {
+        var url = posterUrl(itemId);
+        var image = url
+            ? 'background-image:url(\'' + escapeHtml(url) + '\');'
+            : 'background:rgba(127,127,127,.18);';
+        var href = escapeHtml(itemLink(itemId));
+
+        return '<div class="card overflowPortraitCard card-hoverable concierge-card">'
+            + '<div class="cardBox cardBox-bottompadded">'
+            + '<div class="cardScalable">'
+            + '<div class="cardPadder cardPadder-overflowPortrait"></div>'
+            + '<a class="cardImageContainer coveredImage cardContent" href="' + href
+            + '" style="' + image + '">'
+            + (stamp ? '<div class="concierge-stamp">' + escapeHtml(stamp) + '</div>' : '')
+            + '</a>'
+            + '</div>'
+            + '<div class="cardText cardTextCentered cardText-first">'
+            + '<a is="emby-linkbutton" href="' + href + '" title="' + escapeHtml(title) + '">'
+            + '<bdi>' + escapeHtml(title) + '</bdi></a></div>'
+            + (why
+                ? '<div class="cardText cardTextCentered concierge-why">' + escapeHtml(why) + '</div>'
+                : '')
+            + '</div></div>';
+    }
+
+    function section(heading, cards) {
+        return '<h2 class="sectionTitle sectionTitle-cards padded-left padded-right'
+            + ' concierge-heading">' + heading + '</h2>'
+            + '<div class="itemsContainer padded-right vertical-wrap concierge-row">'
+            + cards + '</div>';
     }
 
     function renderHits(result) {
-        var rows = (result.Hits || []).slice(0, 12).map(function (hit) {
-            var year = hit.Year ? ' <span class="concierge-year">(' + escapeHtml(String(hit.Year)) + ')</span>' : '';
-            return '<a class="concierge-hit" href="' + escapeHtml(itemLink(hit)) + '">'
-                + '<span class="concierge-title">' + escapeHtml(hit.Name) + '</span>' + year
-                + '<span class="concierge-why">' + escapeHtml(hit.Why || '') + '</span>'
-                + '</a>';
+        return (result.Hits || []).slice(0, 12).map(function (hit) {
+            var title = hit.Name + (hit.Year ? ' (' + hit.Year + ')' : '');
+            return card(hit.ItemId, title, hit.Why || '', null);
         }).join('');
-
-        return rows;
     }
 
     function renderQuotes(result) {
@@ -120,24 +226,16 @@
             return '';
         }
 
-        var rows = result.Quotes.slice(0, 6).map(function (q) {
+        var cards = result.Quotes.slice(0, 8).map(function (q) {
             var at = Math.floor((q.Position || 0) / 10000000);
             var mins = Math.floor(at / 60);
             var secs = at % 60;
             var stamp = mins + ':' + (secs < 10 ? '0' : '') + secs;
 
-            // Deep-link five seconds before the line so playback starts on the
-            // run-up rather than mid-word.
-            var href = '#/details?id=' + encodeURIComponent(q.ItemId);
-
-            return '<a class="concierge-hit" href="' + escapeHtml(href) + '">'
-                + '<span class="concierge-title">' + escapeHtml(q.Title) + '</span>'
-                + ' <span class="concierge-year">' + escapeHtml(stamp) + '</span>'
-                + '<span class="concierge-why">&ldquo;' + escapeHtml(q.Line) + '&rdquo;</span>'
-                + '</a>';
+            return card(q.ItemId, q.Title, '\u201c' + (q.Line || '') + '\u201d', stamp);
         }).join('');
 
-        return '<h2 class="concierge-heading">Said in&hellip;</h2><div class="concierge-list">' + rows + '</div>';
+        return section('Said in\u2026', cards);
     }
 
     function render(result) {
@@ -150,7 +248,7 @@
         var hasQuotes = result.Quotes && result.Quotes.length;
 
         if (!hasHits && !hasQuotes) {
-            // Nothing to add. Emptying our own container is fine — we made it.
+            // Nothing to add. Emptying our own container is fine \u2014 we made it.
             el.innerHTML = '';
             return;
         }
@@ -158,15 +256,18 @@
         var html = '';
 
         if (hasHits) {
-            var label = result.Reranked ? 'Concierge' : 'Concierge <span class="concierge-note">(unranked)</span>';
-            html += '<h2 class="concierge-heading">' + label + '</h2>'
-                + '<div class="concierge-list">' + renderHits(result) + '</div>';
+            var label = result.Reranked
+                ? 'Concierge'
+                : 'Concierge <span class="concierge-note">(unranked)</span>';
+
+            html += section(label, renderHits(result));
         }
 
         html += renderQuotes(result);
 
         if (result.Degraded) {
-            html += '<div class="concierge-note concierge-degraded">' + escapeHtml(result.Degraded) + '</div>';
+            html += '<div class="concierge-note concierge-degraded">'
+                + escapeHtml(result.Degraded) + '</div>';
         }
 
         el.innerHTML = html;
