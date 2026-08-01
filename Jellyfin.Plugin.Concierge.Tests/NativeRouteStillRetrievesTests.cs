@@ -4,6 +4,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Concierge.Configuration;
+using Jellyfin.Plugin.Concierge.Core.Budget;
+using Jellyfin.Plugin.Concierge.Services.Budget;
+using Jellyfin.Plugin.Concierge.Services.Llm;
 using Jellyfin.Plugin.Concierge.Core.Documents;
 using Jellyfin.Plugin.Concierge.Core.Retrieval;
 using Jellyfin.Plugin.Concierge.Services;
@@ -86,6 +89,43 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 => Task.FromResult<IReadOnlyList<QueryRunRecord>>(Records);
         }
 
+        /// <summary>Throws if used, so a Native query reaching a model fails loudly.</summary>
+        private sealed class ExplodingLlmFactory : ILlmProviderFactory
+        {
+            public Jellyfin.Plugin.Concierge.Services.Llm.ILlmProvider Create(PluginConfiguration config)
+                => throw new InvalidOperationException("a Native query must not call a model");
+
+            public Jellyfin.Plugin.Concierge.Services.Llm.ILlmProvider Create(
+                ModelProfile profile, bool globalEnableThinking)
+                => throw new InvalidOperationException("a Native query must not call a model");
+        }
+
+        private sealed class NullSpendStore : ISpendStore
+        {
+            public List<(SpendKind Kind, decimal Amount)> Recorded { get; } = [];
+
+            public void Record(SpendKind kind, decimal amountUsd, string? userId = null)
+                => Recorded.Add((kind, amountUsd));
+
+            public decimal QuerySpendThisMonth() => 0m;
+
+            public decimal EnrichmentSpendThisMonth() => 0m;
+
+            public int PaidQueriesInLastHour(string? userId) => 0;
+        }
+
+        private static SearchService Service(
+            IEmbeddingProviderFactory embeddings,
+            IQueryLogStore log,
+            ISpendStore? spend = null)
+            => new(
+                new StubIndexStore(BuildIndex()),
+                embeddings,
+                new ExplodingLlmFactory(),
+                log,
+                spend ?? new NullSpendStore(),
+                NullLogger<SearchService>.Instance);
+
         private static ConciergeIndex BuildIndex()
         {
             var documents = FixtureLibrary.All;
@@ -115,8 +155,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
         {
             var embeddings = new ExplodingEmbeddingFactory();
             var log = new NullQueryLog();
-            var service = new SearchService(
-                new StubIndexStore(BuildIndex()), embeddings, log, NullLogger<SearchService>.Instance);
+            var service = Service(embeddings, log);
 
             var result = await service.SearchAsync(query, null, Config(), CancellationToken.None);
 
@@ -134,11 +173,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
         {
             // The "death love" case: every word names something, so the router calls
             // it a title lookup — and a substring match fails while BM25 does not.
-            var service = new SearchService(
-                new StubIndexStore(BuildIndex()),
-                new ExplodingEmbeddingFactory(),
-                new NullQueryLog(),
-                NullLogger<SearchService>.Instance);
+            var service = Service(new ExplodingEmbeddingFactory(), new NullQueryLog());
 
             var result = await service.SearchAsync("lambs silence", null, Config(), CancellationToken.None);
 
@@ -151,11 +186,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
         {
             // The "robots" case: stemming is why the keyword half beats a substring
             // match, and it only helps if retrieval is allowed to run at all.
-            var service = new SearchService(
-                new StubIndexStore(BuildIndex()),
-                new ExplodingEmbeddingFactory(),
-                new NullQueryLog(),
-                NullLogger<SearchService>.Instance);
+            var service = Service(new ExplodingEmbeddingFactory(), new NullQueryLog());
 
             var result = await service.SearchAsync("lambs", null, Config(), CancellationToken.None);
 
@@ -167,11 +198,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
         public async Task TheQueryLog_RecordsWhatCameBack()
         {
             var log = new NullQueryLog();
-            var service = new SearchService(
-                new StubIndexStore(BuildIndex()),
-                new ExplodingEmbeddingFactory(),
-                log,
-                NullLogger<SearchService>.Instance);
+            var service = Service(new ExplodingEmbeddingFactory(), log);
 
             await service.SearchAsync("fargo", null, Config(), CancellationToken.None);
 

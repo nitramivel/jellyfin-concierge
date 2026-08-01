@@ -388,6 +388,80 @@
                     </div>
                 </div>
 
+                <!-- Language passes and spending -->
+                <div class="conciergeSection">
+                    <h3>Language and spending</h3>
+                    <div class="conciergeSectionNote">
+                        Two passes cost money per search. Everything here degrades rather than breaking: at 85% of
+                        the monthly cap re-ranking stops, at 100% searches fall back to keyword and semantic
+                        retrieval, which is free and still good. Nothing ever returns an error.
+                    </div>
+
+                    <div class="conciergeEditor" id="ConciergeProjection">
+                        <div id="ConciergeProjectionText">…</div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:1em;">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnablePlanPass" />
+                            <span>Read the sentence before searching</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Pulls real constraints out of the prose &mdash; <em>90s</em>, <em>under two hours</em>,
+                            <em>that I haven't seen</em>. Skipped automatically when a query has no constraint-like
+                            language in it, so most searches never pay for it.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnableRerankPass" />
+                            <span>Order results with a model and explain each match</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            The pass that carries most of the quality, and about five times the cost of the other
+                            one. It is what makes <em>michael scott</em> return The Office rather than Scott Pilgrim.
+                            Off leaves the fused order, which is free.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MonthlyBudgetUsd">Monthly search budget (USD)</label>
+                        <input id="MonthlyBudgetUsd" type="number" step="0.5" min="0" class="emby-input" />
+                        <div class="fieldDescription">0 removes the cap entirely.</div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="EnrichmentBudgetUsd">Monthly index budget (USD)</label>
+                        <input id="EnrichmentBudgetUsd" type="number" step="0.5" min="0" class="emby-input" />
+                        <div class="fieldDescription">
+                            Separate on purpose. Sharing one pot would let a first index build exhaust the month's
+                            search budget on the day you installed the plugin.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="PaidQueriesPerUserPerHour">Paid searches per user per hour</label>
+                        <input id="PaidQueriesPerUserPerHour" type="number" step="1" min="0" class="emby-input" />
+                        <div class="fieldDescription">
+                            0 is unlimited. Someone holding a key down in a search box is the cheapest way to spend
+                            a month's budget in an afternoon.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="RerankShortlistSize">Candidates sent to the re-ranker</label>
+                        <input id="RerankShortlistSize" type="number" step="5" min="5" max="100" class="emby-input" />
+                        <div class="fieldDescription">The biggest single lever on what a paid search costs.</div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="QueryCacheSize">Remembered searches</label>
+                        <input id="QueryCacheSize" type="number" step="50" min="0" class="emby-input" />
+                        <div class="fieldDescription">Repeats are free. Cleared whenever the index is rebuilt.</div>
+                    </div>
+                </div>
+
                 <!-- Call shape -->
                 <div class="conciergeSection">
                     <h3>Call shape</h3>
@@ -702,7 +776,20 @@
                 page.querySelector('#EmbeddingBatchSize').value = config.EmbeddingBatchSize || 64;
                 page.querySelector('#MaxResults').value = config.MaxResults || 40;
 
+                page.querySelector('#EnablePlanPass').checked = config.EnablePlanPass !== false;
+                page.querySelector('#EnableRerankPass').checked = config.EnableRerankPass !== false;
+                page.querySelector('#MonthlyBudgetUsd').value =
+                    config.MonthlyBudgetUsd === undefined ? 5 : config.MonthlyBudgetUsd;
+                page.querySelector('#EnrichmentBudgetUsd').value =
+                    config.EnrichmentBudgetUsd === undefined ? 10 : config.EnrichmentBudgetUsd;
+                page.querySelector('#PaidQueriesPerUserPerHour').value =
+                    config.PaidQueriesPerUserPerHour === undefined ? 30 : config.PaidQueriesPerUserPerHour;
+                page.querySelector('#RerankShortlistSize').value = config.RerankShortlistSize || 40;
+                page.querySelector('#QueryCacheSize').value =
+                    config.QueryCacheSize === undefined ? 200 : config.QueryCacheSize;
+
                 renderAll(page);
+                renderProjection(page);
             }
 
             function saveConfig(page) {
@@ -730,6 +817,15 @@
                     config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
                     config.EmbeddingBatchSize = parseInt(page.querySelector('#EmbeddingBatchSize').value, 10) || 64;
                     config.MaxResults = parseInt(page.querySelector('#MaxResults').value, 10) || 40;
+
+                    config.EnablePlanPass = page.querySelector('#EnablePlanPass').checked;
+                    config.EnableRerankPass = page.querySelector('#EnableRerankPass').checked;
+                    config.MonthlyBudgetUsd = parseFloat(page.querySelector('#MonthlyBudgetUsd').value) || 0;
+                    config.EnrichmentBudgetUsd = parseFloat(page.querySelector('#EnrichmentBudgetUsd').value) || 0;
+                    config.PaidQueriesPerUserPerHour =
+                        parseInt(page.querySelector('#PaidQueriesPerUserPerHour').value, 10) || 0;
+                    config.RerankShortlistSize = parseInt(page.querySelector('#RerankShortlistSize').value, 10) || 40;
+                    config.QueryCacheSize = parseInt(page.querySelector('#QueryCacheSize').value, 10) || 200;
 
                     ApiClient.updatePluginConfiguration(pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
@@ -871,6 +967,97 @@
             page.querySelector('#EmbeddingName').addEventListener('change', function () {
                 captureEmbeddingEditor(page);
                 renderAll(page);
+            });
+
+            // ---- projected monthly cost ----
+            //
+            // The plan is emphatic that this belongs next to the model picker, because
+            // it is the number people actually decide on — and that the router
+            // assumption behind it must be stated, since that assumption moves the
+            // answer more than the model choice does.
+
+            var SEARCHES_PER_DAY = 50;
+            var PAID_FRACTION = 0.3;
+
+            // Token estimates from PLAN.md §8, measured rather than guessed.
+            var PLAN_IN = 600, PLAN_OUT = 120;
+            var RERANK_OUT = 600;
+
+            function profileById(id) {
+                return modelProfiles.filter(function (p) { return p.Id === id; })[0];
+            }
+
+            function resolvedProfile(passId) {
+                return profileById(passId) || profileById(page.querySelector('#DefaultModelProfileId').value);
+            }
+
+            function callCost(profile, inTokens, outTokens) {
+                if (!profile) {
+                    return 0;
+                }
+
+                return (inTokens * (profile.InputCostPerMillion || 0)
+                    + outTokens * (profile.OutputCostPerMillion || 0)) / 1000000;
+            }
+
+            function renderProjection(page) {
+                var target = page.querySelector('#ConciergeProjectionText');
+                var planOn = page.querySelector('#EnablePlanPass').checked;
+                var rerankOn = page.querySelector('#EnableRerankPass').checked;
+                var shortlist = parseInt(page.querySelector('#RerankShortlistSize').value, 10) || 40;
+                var cap = parseFloat(page.querySelector('#MonthlyBudgetUsd').value) || 0;
+
+                // The shortlist is almost all of the re-rank's input, at roughly 85
+                // tokens per candidate once title, premise and themes are counted.
+                var rerankIn = shortlist * 85;
+
+                var perQuery = 0;
+                if (planOn) {
+                    perQuery += callCost(resolvedProfile(page.querySelector('#PlanModelProfileId').value),
+                        PLAN_IN, PLAN_OUT);
+                }
+
+                if (rerankOn) {
+                    perQuery += callCost(resolvedProfile(page.querySelector('#RerankModelProfileId').value),
+                        rerankIn, RERANK_OUT);
+                }
+
+                if (!planOn && !rerankOn) {
+                    target.innerHTML = '<strong>Nothing is being spent.</strong> Both model passes are off, so '
+                        + 'searches use keyword and semantic retrieval only — free, and still good.';
+                    return;
+                }
+
+                var perMonth = perQuery * SEARCHES_PER_DAY * PAID_FRACTION * 30;
+
+                var html = '<strong>About $' + perQuery.toFixed(4) + ' per paid search</strong>'
+                    + ' — roughly <strong>$' + perMonth.toFixed(2) + ' a month</strong>.';
+
+                html += '<div class="conciergeSectionNote" style="margin:0.5em 0 0 0;">'
+                    + 'Assuming ' + SEARCHES_PER_DAY + ' searches a day and the router sending '
+                    + Math.round(PAID_FRACTION * 100) + '% of them to a model. '
+                    + '<strong>That router assumption moves this number more than your model choice does</strong> — '
+                    + 'titles you already know are answered for nothing.';
+
+                if (cap > 0 && perMonth > cap) {
+                    html += '<br/><span class="conciergeBad">This projection is above your $' + cap.toFixed(2)
+                        + ' cap, so searches would start degrading partway through the month. '
+                        + 'That is not a failure — they fall back to free retrieval.</span>';
+                }
+
+                html += '</div>';
+                target.innerHTML = html;
+            }
+
+            [
+                'EnablePlanPass', 'EnableRerankPass', 'MonthlyBudgetUsd',
+                'RerankShortlistSize', 'PlanModelProfileId', 'RerankModelProfileId',
+                'DefaultModelProfileId',
+            ].forEach(function (id) {
+                var el = page.querySelector('#' + id);
+                if (el) {
+                    el.addEventListener('change', function () { renderProjection(page); });
+                }
             });
 
             // ---- index status ----

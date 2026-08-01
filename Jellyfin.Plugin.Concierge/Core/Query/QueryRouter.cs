@@ -26,7 +26,17 @@ namespace Jellyfin.Plugin.Concierge.Core.Query
     /// A short phrase naming the rule that fired. Recorded on every query, because
     /// the router is the thing most likely to need arguing with later.
     /// </param>
-    public sealed record RouteDecision(QueryRoute Route, string Reason);
+    /// <param name="MayCarryConstraints">
+    /// Whether the query is worth sending to the plan pass at all.
+    /// </param>
+    /// <remarks>
+    /// The plan pass is skippable, and skipping it saves a model call and about
+    /// 400ms on the most common Concierge query. "dark and twisted" has no year, no
+    /// runtime and no watch state hiding in it — there is nothing for a plan to
+    /// extract, so paying one to look is waste. A query with an explicit constraint
+    /// word, or one long enough to be hiding one, is worth the call.
+    /// </remarks>
+    public sealed record RouteDecision(QueryRoute Route, string Reason, bool MayCarryConstraints = false);
 
     /// <summary>
     /// What the router needs to know about the library's vocabulary. Implemented by
@@ -112,7 +122,7 @@ namespace Jellyfin.Plugin.Concierge.Core.Query
             // search, and it is never a title lookup.
             if (IsQuoted(trimmed))
             {
-                return new RouteDecision(QueryRoute.Concierge, "quoted — dialogue search");
+                return new RouteDecision(QueryRoute.Concierge, "quoted — dialogue search", true);
             }
 
             var tokens = Tokenizer.Tokenize(trimmed);
@@ -164,19 +174,24 @@ namespace Jellyfin.Plugin.Concierge.Core.Query
                     : new RouteDecision(QueryRoute.Both, "short, and names nothing in the library");
             }
 
+            // Worth a plan pass when a constraint is stated outright, or when the
+            // query is long enough that one may be buried in the prose.
+            var worthPlanning = hasConstraint || tokens.Count >= 5;
+
             if (tokens.Count >= 4)
             {
-                return new RouteDecision(QueryRoute.Concierge, "long enough to be a description");
+                return new RouteDecision(
+                    QueryRoute.Concierge, "long enough to be a description", worthPlanning);
             }
 
             if (hasConstraint)
             {
-                return new RouteDecision(QueryRoute.Concierge, "carries a time or length constraint");
+                return new RouteDecision(QueryRoute.Concierge, "carries a time or length constraint", true);
             }
 
             if (hasFunctionWord)
             {
-                return new RouteDecision(QueryRoute.Concierge, "reads as a sentence");
+                return new RouteDecision(QueryRoute.Concierge, "reads as a sentence", worthPlanning);
             }
 
             // Three content words that name nothing in the library. Keyword search has
@@ -185,7 +200,7 @@ namespace Jellyfin.Plugin.Concierge.Core.Query
             // answer it.
             if (names is not null && !names.LooksLikeKnownName(trimmed))
             {
-                return new RouteDecision(QueryRoute.Concierge, "names nothing in the library");
+                return new RouteDecision(QueryRoute.Concierge, "names nothing in the library", worthPlanning);
             }
 
             return new RouteDecision(QueryRoute.Both, "ambiguous — run both");

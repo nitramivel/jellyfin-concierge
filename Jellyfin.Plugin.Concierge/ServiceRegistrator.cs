@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.Concierge.Services;
+using Jellyfin.Plugin.Concierge.Services.Budget;
 using Jellyfin.Plugin.Concierge.Services.Embeddings;
 using Jellyfin.Plugin.Concierge.Services.Indexing;
 using Jellyfin.Plugin.Concierge.Services.Library;
@@ -33,6 +34,9 @@ namespace Jellyfin.Plugin.Concierge
             // page polls for progress, and that must not mean reading a run document
             // — every prompt in it — off disk on each poll.
             serviceCollection.AddSingleton<IIndexRunLogStore, IndexRunLogStore>();
+
+            // Persisted, because a monthly cap that resets on restart is not a cap.
+            serviceCollection.AddSingleton<ISpendStore, SpendStore>();
 
             serviceCollection.AddSingleton<IIndexStore, IndexStore>();
             serviceCollection.AddSingleton<EnrichmentService>();

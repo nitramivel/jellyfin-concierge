@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.6.0.0",
+        "changelog": "Phase 2: a plan pass that reads constraints out of the sentence, filters that fail open rather than emptying the page, and a re-rank pass that orders the shortlist and explains each match. Adds a query cache, a persisted spend ledger, a monthly budget that degrades to free retrieval rather than erroring, per-user rate limiting and kill switches for both passes.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.6.0.0/concierge_0.6.0.0.zip",
+        "checksum": "66a11f7772faf84c37950b028bec8df1",
+        "timestamp": "2026-08-01T07:32:24Z"
+      },
+      {
         "version": "0.5.0.0",
         "changelog": "A Native route no longer means returning nothing: keyword retrieval is free and now always runs, so queries like 'robots' and 'death love' surface the titles the index already ranked first. Adds a per-item vibe row of genres and themes so mood words like 'sexy' match something focused instead of being averaged against a plot summary. Needs one index rebuild, which costs almost nothing.",
         "targetAbi": "10.11.11.0",

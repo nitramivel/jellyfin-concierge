@@ -163,11 +163,95 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// Gets or sets how many results a search returns.
         /// </summary>
         /// <remarks>
-        /// 40 because that is the shortlist the re-rank pass will take in phase 2, and
-        /// the evaluation set reads recall@40 as its retrieval diagnostic: an item
-        /// that never reaches this many candidates can never be recovered by any
-        /// amount of prompt work downstream.
+        /// 40 because that is the shortlist the re-rank pass takes, and the evaluation
+        /// set reads recall@40 as its retrieval diagnostic: an item that never reaches
+        /// this many candidates can never be recovered by any amount of prompt work
+        /// downstream.
         /// </remarks>
         public int MaxResults { get; set; } = 40;
+
+        // ── The language passes ──────────────────────────────────────────────────
+
+        /// <summary>
+        /// Gets or sets whether a model reads the sentence before retrieval runs.
+        /// </summary>
+        /// <remarks>
+        /// A kill switch, and turning it off leaves a working plugin: retrieval uses
+        /// the raw query and applies no filters. The pass is also skipped
+        /// automatically when the router saw no constraint-like language, which saves
+        /// the call on the most common Concierge query.
+        /// </remarks>
+        public bool EnablePlanPass { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets whether a model orders the shortlist and explains each match.
+        /// </summary>
+        /// <remarks>
+        /// The pass that carries most of the quality, and the more expensive of the
+        /// two — roughly five times the plan pass, because it sends the whole
+        /// shortlist. Off leaves the fused order, which is slightly worse and free.
+        /// </remarks>
+        public bool EnableRerankPass { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets how many candidates go to the re-rank pass.
+        /// </summary>
+        /// <remarks>
+        /// The single biggest lever on per-query cost: this is almost all of the
+        /// re-rank's input tokens. 40 matches the recall@40 the evaluation set reads.
+        /// </remarks>
+        public int RerankShortlistSize { get; set; } = 40;
+
+        // ── Spending ─────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Gets or sets the monthly ceiling for <em>query</em> spend, in USD.
+        /// 0 means uncapped.
+        /// </summary>
+        /// <remarks>
+        /// This is the constraint that separates Concierge from its sibling. Curator
+        /// spends on a schedule its owner controls; Concierge spends when someone
+        /// types, which is unpredictable and can be triggered by anyone with an
+        /// account on the server.
+        /// <para>
+        /// Reaching it never breaks search. At 85% the re-rank stops; at 100% queries
+        /// fall back to free retrieval and say so.
+        /// </para>
+        /// </remarks>
+        public decimal MonthlyBudgetUsd { get; set; } = 5m;
+
+        /// <summary>
+        /// Gets or sets the monthly ceiling for <em>index</em> spend, in USD.
+        /// 0 means uncapped.
+        /// </summary>
+        /// <remarks>
+        /// <b>Deliberately a separate pot from <see cref="MonthlyBudgetUsd"/>.</b> A
+        /// full index build costs a couple of dollars, so sharing one budget would
+        /// exhaust the month on the day someone installed the plugin and leave search
+        /// degraded — the worst possible first impression, caused entirely by an
+        /// accounting decision.
+        /// </remarks>
+        public decimal EnrichmentBudgetUsd { get; set; } = 10m;
+
+        /// <summary>
+        /// Gets or sets how many paid searches one user may make per hour.
+        /// 0 means unlimited.
+        /// </summary>
+        /// <remarks>
+        /// Someone holding a key down in a search box is the cheapest way to spend a
+        /// month's budget in an afternoon. Reaching the limit degrades that user to
+        /// free retrieval and leaves everyone else untouched.
+        /// </remarks>
+        public int PaidQueriesPerUserPerHour { get; set; } = 30;
+
+        /// <summary>
+        /// Gets or sets how many answered queries are remembered.
+        /// </summary>
+        /// <remarks>
+        /// Repeats are free and instant. The same person retyping the same thing is
+        /// the commonest search there is, and the cache is where that stops costing
+        /// money. Invalidated wholesale by an index rebuild.
+        /// </remarks>
+        public int QueryCacheSize { get; set; } = 200;
     }
 }
