@@ -13,17 +13,17 @@ wrong, and two of them were load-bearing.
 ## 1. STATE
 
 ```
-Released .......... v0.10.1.0 on GitHub, manifest.json pushed, MD5 verified
-Installed ......... 0.10.0.0 on the server as of 11:00 — 0.10.1.0 NOT YET INSTALLED
+Released .......... v0.11.0.0 on GitHub, manifest.json pushed, MD5 verified
+Installed ......... 0.10.0.0 on the server as of 11:00 — 0.11.0.0 NOT YET INSTALLED
 main .............. level with origin, working tree clean
-Tests ............. 288 passing, no network, warnings-as-errors clean
+Tests ............. 292 passing, warnings-as-errors clean
 Compiled against .. the real 10.11.11 assemblies
 Index ............. generation 4 — 264 items, 2,550 rows, 254 enriched
 Query log ......... data/concierge/queries/queries-2026-08.jsonl, 89 searches
 Spend ............. $0.09 on queries, $0.09 on the one full index build
 ```
 
-Phases 0, 1, 2 and 3a are built and shipped. Eleven releases, 0.2.0.0 → 0.10.1.0.
+Phases 0, 1, 2 and 3a are built and shipped. Twelve releases, 0.2.0.0 → 0.11.0.0.
 
 **1.0.0.0 was published and withdrawn** — release, tag and manifest entry deleted.
 The number was picked for the milestone rather than the state of the product.
@@ -107,12 +107,15 @@ re-rank pass and re-measure; if that is not enough, `PLAN.md` §8 prescribes
 streaming — render the fused order at ~300 ms and re-order in place when the
 re-rank lands. The client script is already structured for it.
 
-**2. Typing burns money on prefixes.** 28 of 89 logged queries are a strict
-prefix of another logged query — `dark and tw`, `dark and twsted` and `iron man`
+**2. Typing burned money on prefixes — addressed in 0.11.0.0.** 28 of 89 logged
+queries were a strict prefix of another logged query — `dark and tw`, `dark and
+twsted` and `iron man`
 all fired inside four seconds, each a full paid re-rank at ~$0.0014. That is
 roughly a third of query spend buying answers to half-typed words. The 450 ms
-debounce is too short for a pass that costs money and takes six seconds. Options:
-lengthen it substantially, require the input to settle, or only spend on Enter.
+debounce was too short for a pass that costs money and takes six seconds.
+0.11.0.0 waits two seconds for the input to settle and lets Enter run immediately;
+Enter cannot duplicate an identical request already in flight. Re-measure the
+prefix share after it has real use rather than assuming the new interval is enough.
 
 **3. The query log starts with a UTF-8 BOM.** `json.loads` on line 1 throws
 `Unexpected UTF-8 BOM`; every reader needs `encoding="utf-8-sig"`. It is an
@@ -174,8 +177,9 @@ know individual episodes, so you pay input on ~5,000 items for empty answers.
 
 ## 5. NEVER SEEN, NEVER RUN
 
-**The poster cards have never been seen in a browser.** 0.10.1.0 is the first
-build that can actually deliver them. Specifically unverified:
+**The poster cards have never been seen in a browser.** 0.11.0.0 is the current
+build to verify: it can deliver them without stale-cache ambiguity and renders
+them in Jellyfin's native horizontal scroller shape. Specifically unverified:
 
 - Whether `overflowPortraitCard` / `cardPadder-overflowPortrait` size correctly
   in our section. If they were renamed, cards render as bare text and the fix is
@@ -308,9 +312,9 @@ it. Both were correctly refused. Anyone with a shell on the NAS can fill it in.
 
 ## 8. IMMEDIATE NEXT STEPS
 
-1. **Install 0.10.1.0** and reload the web client normally. Confirm the cards
-   render and that the Jellyseerr rows are untouched. This is the first build
-   whose client changes can actually reach a browser.
+1. **Install 0.11.0.0** and reload the web client normally. Confirm the cards
+   render and that the Jellyseerr rows are untouched. Its fingerprinted script
+   URL removes the stale-client ambiguity from that check.
 2. **Cap re-rank reasoning** and re-measure against the 2.5 s ceiling (§3.1).
 3. **Stop paying for half-typed queries** (§3.2).
 4. **Get an answer on `/Search/Hints`** (§2.1) — ask first. It decides whether
