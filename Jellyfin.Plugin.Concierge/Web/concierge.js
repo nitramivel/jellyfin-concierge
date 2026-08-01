@@ -40,6 +40,8 @@
         '#concierge-results .concierge-why{opacity:.72;font-size:.86em;white-space:normal;' +
         'padding:0 .4em;display:-webkit-box;-webkit-box-orient:vertical;' +
         '-webkit-line-clamp:2;overflow:hidden;min-height:2.4em;}' +
+        '#concierge-results .concierge-card .cardText{text-align:left!important;' +
+        'padding-left:.4em;padding-right:.4em;}' +
         '#concierge-results .concierge-note{opacity:.6;font-size:.7em;font-weight:400;}' +
         '#concierge-results .concierge-degraded{opacity:.65;font-size:.85em;' +
         'margin:.4em 0 0 .8em;}' +
@@ -47,6 +49,8 @@
         // poster, and if the client's own cardImageContainer ever stops being a
         // positioned ancestor the stamp would fly to the corner of the page.
         '#concierge-results .cardImageContainer{position:relative;}' +
+        '#concierge-results .concierge-poster{display:block;width:100%;height:100%;' +
+        'object-fit:cover;}' +
         '#concierge-results .concierge-stamp{position:absolute;right:.4em;bottom:.4em;' +
         'background:rgba(0,0,0,.72);color:#fff;border-radius:.25em;padding:.1em .4em;' +
         'font-size:.78em;}';
@@ -186,12 +190,19 @@
     }
 
     function posterUrl(itemId) {
-        if (!window.ApiClient || !window.ApiClient.getImageUrl) {
+        if (!window.ApiClient) {
             return '';
         }
 
         try {
-            return window.ApiClient.getImageUrl(itemId, { type: 'Primary', maxHeight: 330 });
+            // Jellyfin 10.11's own card builder uses getScaledImageUrl. Prefer the
+            // same API, retaining getImageUrl only for older web clients which do
+            // not expose the scaled helper.
+            var getUrl = window.ApiClient.getScaledImageUrl || window.ApiClient.getImageUrl;
+
+            return getUrl
+                ? getUrl.call(window.ApiClient, itemId, { type: 'Primary', maxHeight: 600 })
+                : '';
         } catch (e) {
             return '';
         }
@@ -209,9 +220,10 @@
      * elements we created ourselves. */
     function card(itemId, title, why, stamp) {
         var url = posterUrl(itemId);
-        var image = url
-            ? 'background-image:url(\'' + escapeHtml(url) + '\');'
-            : 'background:rgba(127,127,127,.18);';
+        var poster = url
+            ? '<img class="concierge-poster" src="' + escapeHtml(url)
+                + '" alt="" loading="lazy">'
+            : '';
         var href = escapeHtml(itemLink(itemId));
 
         return '<div class="card overflowPortraitCard card-hoverable card-withuserdata concierge-card">'
@@ -219,7 +231,8 @@
             + '<div class="cardScalable">'
             + '<div class="cardPadder cardPadder-overflowPortrait"></div>'
             + '<a class="cardImageContainer coveredImage cardContent" href="' + href
-            + '" style="' + image + '">'
+            + '" style="background:rgba(127,127,127,.18);">'
+            + poster
             + (stamp ? '<div class="concierge-stamp">' + escapeHtml(stamp) + '</div>' : '')
             + '</a>'
             + '</div>'

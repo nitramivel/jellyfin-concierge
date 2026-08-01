@@ -169,7 +169,16 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 StringComparison.Ordinal);
             Assert.Contains("itemsContainer scrollSlider concierge-row", Script, StringComparison.Ordinal);
             Assert.Contains("card-withuserdata concierge-card", Script, StringComparison.Ordinal);
+            Assert.Contains(".concierge-card .cardText{text-align:left!important", Script, StringComparison.Ordinal);
             Assert.DoesNotContain("vertical-wrap concierge-row", Script, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PostersUseJellyfinsSupportedScaledImageUrlAndARealImageElement()
+        {
+            Assert.Contains("window.ApiClient.getScaledImageUrl", Script, StringComparison.Ordinal);
+            Assert.Contains("<img class=\"concierge-poster\"", Script, StringComparison.Ordinal);
+            Assert.Contains("object-fit:cover", Script, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -221,7 +230,9 @@ namespace Jellyfin.Plugin.Concierge.Tests
 
             var raw = Regex.Matches(card, @"\+\s*(?!escapeHtml|'|\()([A-Za-z_$][\w$]*)")
                 .Select(m => m.Groups[1].Value)
-                .Where(name => name != "image" && name != "href")
+                // These are complete markup fragments/attributes assembled above;
+                // every server value inside them has already passed escapeHtml.
+                .Where(name => name != "href" && name != "poster")
                 .ToList();
 
             Assert.True(
