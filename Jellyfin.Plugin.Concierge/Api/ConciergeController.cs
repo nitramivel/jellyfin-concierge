@@ -295,6 +295,7 @@ namespace Jellyfin.Plugin.Concierge.Api
                 QuoteIncludeEpisodes = config.QuoteIncludeEpisodes,
                 SubtitleLanguage = config.SubtitleLanguage,
                 QuoteWindowWords = config.QuoteWindowWords,
+                EnableLyricSearch = config.EnableLyricSearch,
             };
         }
     }

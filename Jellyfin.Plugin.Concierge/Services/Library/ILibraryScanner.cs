@@ -43,5 +43,16 @@ namespace Jellyfin.Plugin.Concierge.Services.Library
         /// </param>
         /// <returns>The items to index.</returns>
         IReadOnlyList<BaseItem> Scan(bool includeEpisodes);
+
+        /// <summary>
+        /// Scans the music library for tracks that carry lyrics.
+        /// </summary>
+        /// <remarks>
+        /// Separate from <see cref="Scan"/> because songs are a different kind of
+        /// thing: they are never re-ranked against films, and their text arrives
+        /// already parsed and time-stamped rather than needing extraction.
+        /// </remarks>
+        /// <returns>Audio items inside a configured library folder.</returns>
+        IReadOnlyList<BaseItem> ScanAudio();
     }
 }

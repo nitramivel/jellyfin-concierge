@@ -9,6 +9,7 @@ using Jellyfin.Plugin.Concierge.Core.Subtitles;
 using Jellyfin.Plugin.Concierge.Services.Library;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Lyrics;
 using MediaBrowser.Controller.MediaEncoding;
 using Microsoft.Extensions.Logging;
 
@@ -55,6 +56,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
         private readonly ILibraryScanner _scanner;
         private readonly IMediaSourceManager _mediaSources;
         private readonly ISubtitleEncoder _subtitles;
+        private readonly ILyricManager _lyrics;
         private readonly IQuoteStore _store;
         private readonly QuoteIndexProvider _provider;
         private readonly ILogger<SubtitleIndexer> _logger;
@@ -63,6 +65,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
             ILibraryScanner scanner,
             IMediaSourceManager mediaSources,
             ISubtitleEncoder subtitles,
+            ILyricManager lyrics,
             IQuoteStore store,
             QuoteIndexProvider provider,
             ILogger<SubtitleIndexer> logger)
@@ -70,6 +73,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
             _scanner = scanner;
             _mediaSources = mediaSources;
             _subtitles = subtitles;
+            _lyrics = lyrics;
             _store = store;
             _provider = provider;
             _logger = logger;
@@ -154,6 +158,15 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
                 }
             }
 
+            if (config.EnableLyricSearch)
+            {
+                var lyrics = await IndexLyricsAsync(coverage, cancellationToken).ConfigureAwait(false);
+                extracted += lyrics.Extracted;
+                skipped += lyrics.Skipped;
+                unavailable += lyrics.Unavailable;
+                cues += lyrics.Cues;
+            }
+
             await _store.SaveCoverageAsync(coverage, cancellationToken).ConfigureAwait(false);
             _provider.Invalidate();
             progress?.Report(100);
@@ -168,6 +181,150 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
                 cues);
 
             return new SubtitleRunResult(items.Count, extracted, skipped, unavailable, failed, cues);
+        }
+
+        /// <summary>
+        /// Indexes song lyrics alongside film dialogue.
+        /// </summary>
+        /// <remarks>
+        /// Far cheaper than subtitles and a different shape of job. Jellyfin already
+        /// holds lyrics as parsed, time-stamped lines — fetched by whatever lyric
+        /// provider is configured — so there is no ffmpeg, no extraction and no
+        /// format to parse. It is a read.
+        /// <para>
+        /// They land in the same phrase index as dialogue, which is the point: a
+        /// remembered line is a remembered line, and the searcher should not have to
+        /// know whether it was spoken or sung. A matched lyric deep-links to the
+        /// second it is sung, exactly as a quoted line does.
+        /// </para>
+        /// </remarks>
+        private async Task<(int Extracted, int Skipped, int Unavailable, int Cues)> IndexLyricsAsync(
+            List<QuoteCoverage> coverage,
+            CancellationToken cancellationToken)
+        {
+            var songs = _scanner.ScanAudio();
+            var extracted = 0;
+            var skipped = 0;
+            var unavailable = 0;
+            var cues = 0;
+
+            foreach (var item in songs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // The lyric API is typed to Audio rather than BaseItem, which is a
+                // useful narrowing: anything else in a music library — a folder, a
+                // playlist — simply has no lyrics to ask for.
+                if (item is not MediaBrowser.Controller.Entities.Audio.Audio song)
+                {
+                    continue;
+                }
+
+                QuoteCoverage Cover(bool indexed, string reason, int count = 0)
+                    => new(song.Id, song.Name ?? string.Empty, song.ProductionYear, indexed, reason, count);
+
+                long size = 0;
+                var modified = DateTime.MinValue;
+                try
+                {
+                    if (!string.IsNullOrEmpty(song.Path) && File.Exists(song.Path))
+                    {
+                        var info = new FileInfo(song.Path);
+                        size = info.Length;
+                        modified = info.LastWriteTimeUtc;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Concierge: could not stat {Path}", song.Path);
+                }
+
+                var existing = await _store.LoadAsync(song.Id, cancellationToken).ConfigureAwait(false);
+                if (existing is not null && existing.IsFresh(-1, song.Path, size, modified))
+                {
+                    skipped++;
+                    coverage.Add(Cover(true, "lyrics", existing.Cues.Count));
+                    continue;
+                }
+
+                try
+                {
+                    var lyrics = await _lyrics.GetLyricsAsync(song, cancellationToken).ConfigureAwait(false);
+                    var lines = lyrics?.Lyrics;
+
+                    if (lines is null || lines.Count == 0)
+                    {
+                        unavailable++;
+                        coverage.Add(Cover(false, "no lyrics available"));
+                        continue;
+                    }
+
+                    // Cleaned with the same rules as subtitles, which strips the
+                    // "[Chorus]" and "(x2)" markers lyric files carry and would
+                    // otherwise match on.
+                    var cleaned = new List<Core.Subtitles.CleanCue>(lines.Count);
+                    foreach (var line in lines)
+                    {
+                        var text = CueCleaner.CleanLine(line.Text);
+                        if (text.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        // An unsynced lyric file has no timings at all. Those are still
+                        // worth indexing — the song is findable, it just cannot be
+                        // seeked to — so a missing start becomes zero rather than a skip.
+                        var start = TimeSpan.FromTicks(line.Start ?? 0);
+                        cleaned.Add(new Core.Subtitles.CleanCue(start, start, text, line.Text ?? text));
+                    }
+
+                    if (cleaned.Count == 0)
+                    {
+                        unavailable++;
+                        coverage.Add(Cover(false, "lyrics held no words once cleaned"));
+                        continue;
+                    }
+
+                    // -1 as the stream index marks this as lyrics rather than a
+                    // subtitle track, so the staleness check cannot confuse the two.
+                    await _store.SaveAsync(
+                            new QuoteTrack(
+                                song.Id,
+                                song.Name ?? string.Empty,
+                                -1,
+                                song.Path ?? string.Empty,
+                                size,
+                                modified,
+                                DateTime.UtcNow,
+                                cleaned
+                                    .Select(c => new StoredCue(c.Start.Ticks, c.End.Ticks, c.Text, c.Raw))
+                                    .ToList()),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+
+                    extracted++;
+                    cues += cleaned.Count;
+                    coverage.Add(Cover(true, "lyrics", cleaned.Count));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Concierge: could not read lyrics for {Song}", song.Name);
+                    unavailable++;
+                    coverage.Add(Cover(false, "lyrics could not be read"));
+                }
+            }
+
+            _logger.LogInformation(
+                "Concierge: lyrics — {Extracted} song(s) indexed, {Skipped} unchanged, {Without} without lyrics",
+                extracted,
+                skipped,
+                unavailable);
+
+            return (extracted, skipped, unavailable, cues);
         }
 
         private async Task<(Status Status, QuoteCoverage Coverage)> ProcessAsync(

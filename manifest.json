@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.8.0.0",
+        "changelog": "Indexes song lyrics alongside film dialogue, so a remembered line finds the track and the second it is sung. Fixes michael scott returning Scott Pilgrim by applying the plan's dominant-winner rule: a Native route only stands when keyword retrieval produced a clear winner. Cuts paid search latency by asking the re-ranker for its best twelve rather than all forty, capping explanations, and trimming the shortlist.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.8.0.0/concierge_0.8.0.0.zip",
+        "checksum": "92791c322b9d546a7446ce6c70e43fd2",
+        "timestamp": "2026-08-01T09:35:19Z"
+      },
+      {
         "version": "0.7.0.0",
         "changelog": "Phase 3: quote search. Extracts the subtitles already inside your files and indexes the dialogue, so a quoted line finds the film and the moment it is said \u2014 no model, no embeddings, no money. Resumable extraction keyed on stream, path, size and modified time; forced tracks refused; SDH annotations stripped; misremembered quotes caught by trigram matching; and a coverage report naming what cannot be indexed and why.",
         "targetAbi": "10.11.11.0",

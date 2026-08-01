@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.Concierge.Core;
 using MediaBrowser.Controller.Entities;
@@ -93,6 +94,23 @@ namespace Jellyfin.Plugin.Concierge.Services.Library
                 orphaned,
                 includeEpisodes ? "included" : "excluded");
 
+            return kept;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<BaseItem> ScanAudio()
+        {
+            var items = _libraryManager.GetItemsResult(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Audio],
+                Recursive = true,
+                IsVirtualItem = false,
+            }).Items;
+
+            var roots = LibraryRoots();
+            var kept = items.Where(i => LibraryPathFilter.IsInsideLibrary(i.Path, roots)).ToList();
+
+            _logger.LogInformation("Concierge: {Count} audio track(s) to check for lyrics", kept.Count);
             return kept;
         }
 

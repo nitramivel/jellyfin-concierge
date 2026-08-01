@@ -185,17 +185,18 @@ namespace Jellyfin.Plugin.Concierge.Services
             // embedding call and both model passes.
             var lexicalOnly = decision.Route == QueryRoute.Native;
 
-            var budget = lexicalOnly
-                ? new BudgetOutcome(BudgetVerdict.FreeOnly, string.Empty, 0m, config.MonthlyBudgetUsd)
-                : BudgetDecision.ForQuery(
-                    _spend.QuerySpendThisMonth(),
-                    config.MonthlyBudgetUsd,
-                    _spend.PaidQueriesInLastHour(UserKey(userId)),
-                    config.PaidQueriesPerUserPerHour,
-                    config.EnablePlanPass,
-                    config.EnableRerankPass);
+            // Computed even for a provisional Native route, because that route may be
+            // upgraded once the keyword scores are in and the upgrade must know what
+            // it is allowed to spend.
+            var budget = BudgetDecision.ForQuery(
+                _spend.QuerySpendThisMonth(),
+                config.MonthlyBudgetUsd,
+                _spend.PaidQueriesInLastHour(UserKey(userId)),
+                config.PaidQueriesPerUserPerHour,
+                config.EnablePlanPass,
+                config.EnableRerankPass);
 
-            var degraded = string.IsNullOrEmpty(budget.Reason) ? null : budget.Reason;
+            var degraded = lexicalOnly || string.IsNullOrEmpty(budget.Reason) ? null : budget.Reason;
 
             // ── Plan ────────────────────────────────────────────────────────────
             var plan = SearchPlan.Passthrough(query);
@@ -214,6 +215,28 @@ namespace Jellyfin.Plugin.Concierge.Services
             var pool = Math.Max(config.MaxResults, config.RerankShortlistSize) * 3;
             var lexical = index.Lexical.Search(plan.Semantic, pool);
             IReadOnlyList<ScoredItem> vector = [];
+
+            // §4.2's third native rule, and it can only be applied here because it is
+            // the one that has to see the answer first. A Native route claims the
+            // keyword index already knows what was meant — so if its top hit is not a
+            // clear winner, that claim was wrong and the query deserves the full
+            // pipeline.
+            //
+            // Measured: "michael scott" scored Scott Pilgrim 5.93 against The Office
+            // 5.55. A 7% edge is a coin toss, and routing Native on it meant the
+            // re-ranker — which knows perfectly well who Michael Scott is — never saw
+            // the query at all.
+            if (lexicalOnly
+                && budget.AllowsAnySpend
+                && !QueryRouter.HasDominantWinner(lexical.Select(h => h.Score).ToList()))
+            {
+                lexicalOnly = false;
+                decision = decision with
+                {
+                    Route = QueryRoute.Both,
+                    Reason = decision.Reason + ", but no clear keyword winner",
+                };
+            }
 
             if (!lexicalOnly)
             {

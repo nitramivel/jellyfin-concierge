@@ -104,6 +104,48 @@ namespace Jellyfin.Plugin.Concierge.Core.Query
         };
 
         /// <summary>
+        /// How much clearer the top keyword hit must be than the runner-up for a
+        /// Native route to stand.
+        /// </summary>
+        /// <remarks>
+        /// §4.2's third native rule: "lexical retrieval already returns a hit with a
+        /// dominant score — a clear winner, not a flat distribution." This is that
+        /// threshold, and it is what "michael scott" needed. Scott Pilgrim scored
+        /// 5.93 against The Office's 5.55 — a 7% edge, which is a coin toss dressed
+        /// as an answer, and the router was treating it as certainty.
+        /// </remarks>
+        public const double DominanceRatio = 1.35;
+
+        /// <summary>
+        /// Whether the keyword results have a clear winner.
+        /// </summary>
+        /// <remarks>
+        /// Checked <em>after</em> retrieval, because it is the only native rule that
+        /// needs to see the answer before it can judge. A dominant top hit means
+        /// somebody typed a title and got it; a flat distribution means the words
+        /// appear all over the library and something more than keywords is needed.
+        /// </remarks>
+        /// <param name="scores">The lexical scores, best first.</param>
+        /// <returns>True when the top hit clearly wins.</returns>
+        public static bool HasDominantWinner(IReadOnlyList<double> scores)
+        {
+            ArgumentNullException.ThrowIfNull(scores);
+
+            if (scores.Count == 0)
+            {
+                return false;
+            }
+
+            // A single hit is dominant by definition: nothing else matched at all.
+            if (scores.Count == 1)
+            {
+                return true;
+            }
+
+            return scores[1] <= 0 || scores[0] / scores[1] >= DominanceRatio;
+        }
+
+        /// <summary>
         /// Routes a query.
         /// </summary>
         /// <param name="query">The raw query text.</param>

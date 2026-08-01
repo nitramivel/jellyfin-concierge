@@ -50,13 +50,16 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
 
             Rules:
 
-            - Order the WHOLE list. Do not select, do not filter, do not drop anything
-              you think is a poor match — put it lower instead. Something you leave out
-              is something the searcher cannot find.
-            - Use each number exactly once. Never invent a number that is not listed.
-            - "why" is one clause, under twelve words, naming what actually connects it
-              to the search: "amnesia, tattoos, told backwards" or "the polite bear
+            - Return only the BEST few, in order. Anything you leave out keeps the
+              position search already gave it, so omitting a poor match is safe and
+              costs nothing — but never reorder something into a place you cannot
+              justify.
+            - Use each number at most once. Never invent a number that is not listed.
+            - "why" is one clause, at most eight words, naming what actually connects
+              it to the search: "amnesia, tattoos, told backwards" or "the polite bear
               one". Not a review, not a plot summary, not "matches your search".
+              Brevity here is not a style note — every word costs the searcher
+              waiting time.
             - NEVER put a twist, an ending, or a death in "why". Some entries below
               include spoilers so you can rank them correctly; they exist for your
               judgement only and the searcher will read what you write. If the only
@@ -109,22 +112,20 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
                 {
                     if (!string.IsNullOrWhiteSpace(e.Premise))
                     {
-                        text.Append("   ").Append(Collapse(e.Premise, 260)).Append('\n');
+                        text.Append("   ").Append(Collapse(e.Premise, 170)).Append('\n');
                     }
 
                     if (e.Themes.Count > 0)
                     {
-                        text.Append("   themes: ").Append(string.Join(", ", e.Themes.Take(8))).Append('\n');
+                        text.Append("   themes: ").Append(string.Join(", ", e.Themes.Take(6))).Append('\n');
                     }
 
-                    if (e.Moments.Count > 0)
-                    {
-                        text.Append("   moments: ").Append(Collapse(string.Join("; ", e.Moments.Take(4)), 200));
-
-                        // Flagged so the model knows which lines it must not repeat
-                        // back, rather than having to guess what counts as a spoiler.
-                        text.Append(e.Spoiler ? "   [SPOILERS — do not repeat]\n" : "\n");
-                    }
+                    // Moments are deliberately NOT sent. They are the longest field
+                    // and the least load-bearing for ranking — the premise already says
+                    // what happens — and the shortlist prompt is the largest single
+                    // input in the plugin. They are also the field most likely to be a
+                    // twist stated plainly, so leaving them out removes the main way a
+                    // spoiler could reach the searcher.
                 }
                 else if (!string.IsNullOrWhiteSpace(d.Overview))
                 {
@@ -149,9 +150,24 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
 
                 They searched for: {query}
 
-                Return all {count} numbers in your preferred order.
+                {count} candidates above. Return at most {DefaultReturned} of them —
+                the ones you would actually show, best first. The rest keep the order
+                search gave them.
                 """) + "\n" + ResponseTemplate;
         }
+
+        /// <summary>
+        /// How many the model is asked to place.
+        /// </summary>
+        /// <remarks>
+        /// Latency, measured: re-ranking all forty candidates took 8-22 seconds
+        /// against a 2.5-second budget, and almost all of it was the model emitting
+        /// forty entries one token at a time. The parser treats the answer as a
+        /// preference over the shortlist, so asking for twelve is safe by
+        /// construction — everything omitted simply keeps the position retrieval gave
+        /// it, which is the answer that would have been served anyway.
+        /// </remarks>
+        public const int DefaultReturned = 12;
 
         /// <summary>
         /// The shape asked for in prose, matching what the schemas declare.

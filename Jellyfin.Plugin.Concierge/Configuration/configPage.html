@@ -495,6 +495,19 @@
                         </div>
                     </div>
 
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnableLyricSearch" />
+                            <span>Index song lyrics too</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Jellyfin already holds lyrics as time-stamped lines, so this needs no extraction and no
+                            ffmpeg &mdash; it is a read. Lyrics land in the same index as dialogue, because a
+                            remembered line is a remembered line and you should not have to know whether it was
+                            spoken or sung. A matched lyric deep-links to the second it is sung.
+                        </div>
+                    </div>
+
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="SubtitleLanguage">Subtitle language</label>
                         <input id="SubtitleLanguage" type="text" class="emby-input" placeholder="en" />
@@ -835,6 +848,7 @@
                 page.querySelector('#EnableQuoteSearch').checked = config.EnableQuoteSearch !== false;
                 page.querySelector('#QuoteIncludeEpisodes').checked = !!config.QuoteIncludeEpisodes;
                 page.querySelector('#SubtitleLanguage').value = config.SubtitleLanguage || 'en';
+                page.querySelector('#EnableLyricSearch').checked = config.EnableLyricSearch !== false;
 
                 renderAll(page);
                 renderProjection(page);
@@ -879,6 +893,7 @@
                     config.QuoteIncludeEpisodes = page.querySelector('#QuoteIncludeEpisodes').checked;
                     config.SubtitleLanguage =
                         page.querySelector('#SubtitleLanguage').value.trim() || 'en';
+                    config.EnableLyricSearch = page.querySelector('#EnableLyricSearch').checked;
 
                     ApiClient.updatePluginConfiguration(pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);

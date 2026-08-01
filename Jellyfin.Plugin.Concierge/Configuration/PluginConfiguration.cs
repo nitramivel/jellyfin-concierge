@@ -197,10 +197,13 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// Gets or sets how many candidates go to the re-rank pass.
         /// </summary>
         /// <remarks>
-        /// The single biggest lever on per-query cost: this is almost all of the
-        /// re-rank's input tokens. 40 matches the recall@40 the evaluation set reads.
+        /// The single biggest lever on per-query cost and the second biggest on
+        /// latency: this is almost all of the re-rank's input tokens. Lowered from
+        /// 40 to 24 after measuring 8-22 second searches against a 2.5-second
+        /// budget. Retrieval still returns 40 for the evaluation set's recall@40;
+        /// this is only how many the model is asked to look at.
         /// </remarks>
-        public int RerankShortlistSize { get; set; } = 40;
+        public int RerankShortlistSize { get; set; } = 24;
 
         // ── Spending ─────────────────────────────────────────────────────────────
 
@@ -293,5 +296,16 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// from them.
         /// </remarks>
         public int QuoteWindowWords { get; set; } = 40;
+
+        /// <summary>
+        /// Gets or sets whether song lyrics are indexed alongside film dialogue.
+        /// </summary>
+        /// <remarks>
+        /// Costs nothing and needs no extraction: Jellyfin already holds lyrics as
+        /// parsed, time-stamped lines, so this is a read rather than an ffmpeg job.
+        /// A matched lyric deep-links to the second it is sung, exactly as a quoted
+        /// line does.
+        /// </remarks>
+        public bool EnableLyricSearch { get; set; } = true;
     }
 }
