@@ -145,7 +145,23 @@ namespace Jellyfin.Plugin.Concierge.Core.Query
 
             if (tokens.Count <= 2 && !hasFunctionWord && !hasConstraint)
             {
-                return new RouteDecision(QueryRoute.Native, "too short to be a description");
+                // Short, and the check above already established it names nothing in
+                // the library — so it is not somebody typing a title they know. It is
+                // a two-word description, and "dark comedy" is as real a search as
+                // "something dark and funny" is.
+                //
+                // Measured on the owner's library before this was fixed: "dark
+                // comedy", "weed comedy" and "comedy" all fell through to native and
+                // returned nothing, because the rule assumed short meant title.
+                // Both is the honest answer — native still renders instantly and for
+                // free, and Concierge adds semantic results for one embedding call
+                // costing a rounding error.
+                //
+                // With no dictionary there is no index to search either, so the free
+                // path is the only path.
+                return names is null
+                    ? new RouteDecision(QueryRoute.Native, "too short to be a description")
+                    : new RouteDecision(QueryRoute.Both, "short, and names nothing in the library");
             }
 
             if (tokens.Count >= 4)

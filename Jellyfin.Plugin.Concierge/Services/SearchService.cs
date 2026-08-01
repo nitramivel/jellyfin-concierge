@@ -332,7 +332,12 @@ namespace Jellyfin.Plugin.Concierge.Services
                 calls,
                 response.Hits.Count,
                 response.DurationMs,
-                response.Degraded);
+                response.Degraded,
+                null,
+
+                // Enough to tell a good answer from a bad one when reading the log
+                // back, and few enough not to turn the log into a second index.
+                response.Hits.Take(5).Select(h => h.Name).ToList());
 
             return _runLog.RecordAsync(record, cancellationToken);
         }

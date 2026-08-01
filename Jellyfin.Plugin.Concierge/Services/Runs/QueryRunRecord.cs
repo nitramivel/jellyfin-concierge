@@ -97,6 +97,15 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
     /// served free results, not failures.
     /// </param>
     /// <param name="Error">Why the query failed outright, or null.</param>
+    /// <param name="TopHits">
+    /// The first few titles returned, so a search can be judged after the fact.
+    /// </param>
+    /// <remarks>
+    /// <paramref name="TopHits"/> exists because a result count does not say whether
+    /// the answer was any good. "10 results in 311ms" reads identically for a perfect
+    /// search and a useless one, and by the time anyone wonders which it was the
+    /// results are long gone.
+    /// </remarks>
     public sealed record QueryRunRecord(
         string Id,
         DateTime StartedUtc,
@@ -107,7 +116,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         int ResultCount,
         int DurationMs,
         string? Degraded = null,
-        string? Error = null)
+        string? Error = null,
+        IReadOnlyList<string>? TopHits = null)
     {
         /// <summary>
         /// Gets what the query cost, summed from its calls.

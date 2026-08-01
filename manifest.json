@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.4.0.0",
+        "changelog": "Fixes the router sending short descriptions like 'dark comedy' to native search, where they returned nothing: a short query that names nothing in the library is now treated as a description and served by both paths. The settings search box now shows Jellyfin's own results alongside Concierge's, and the query log records the top titles returned so a search can be judged after the fact.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.4.0.0/concierge_0.4.0.0.zip",
+        "checksum": "e58d6db86c849041492a49f164a1b0a2",
+        "timestamp": "2026-08-01T06:42:30Z"
+      },
+      {
         "version": "0.3.0.0",
         "changelog": "Enrichment now checkpoints every five batches, so cancelling or crashing a build keeps everything already paid for. Adds a per-build run log recording every model call with its tokens and cost, every step, and every item left unenriched with a reason; a progress heartbeat in the server log; and a build history panel on the settings page.",
         "targetAbi": "10.11.11.0",

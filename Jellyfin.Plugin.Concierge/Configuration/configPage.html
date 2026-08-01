@@ -912,6 +912,58 @@
 
             // ---- try a search ----
 
+            function renderHits(hits) {
+                return hits.map(function (hit, i) {
+                    var year = hit.Year ? ' (' + escapeHtml(String(hit.Year)) + ')' : '';
+                    return '<div style="padding:0.35em 0;border-bottom:1px solid rgba(127,127,127,0.18);">'
+                        + '<strong>' + escapeHtml(String(i + 1)) + '. ' + escapeHtml(hit.Name) + '</strong>'
+                        + year
+                        + '<div style="font-size:0.88em;opacity:0.7;">' + escapeHtml(hit.Why)
+                        + ' · lexical ' + escapeHtml(hit.LexicalRank === null ? '—' : String(hit.LexicalRank))
+                        + ' · semantic ' + escapeHtml(hit.VectorRank === null ? '—' : String(hit.VectorRank))
+                        + '</div></div>';
+                }).join('');
+            }
+
+            // Asks Jellyfin for its own answer, so the box shows what a user would
+            // really see rather than only the half this plugin contributed.
+            function appendNativeResults(target, head, result, query) {
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Search/Hints', { searchTerm: query, limit: 10 }),
+                    dataType: 'json'
+                }).then(function (native) {
+                    var hints = (native && native.SearchHints) || [];
+                    var html = head;
+
+                    if (result.Hits && result.Hits.length) {
+                        html += '<div style="margin:0.4em 0 0.2em;"><strong>Concierge</strong></div>'
+                            + renderHits(result.Hits);
+                    }
+
+                    html += '<div style="margin:0.9em 0 0.2em;"><strong>Jellyfin\'s own search</strong>'
+                        + ' <span style="opacity:0.65;">— free, instant, always runs</span></div>';
+
+                    if (!hints.length) {
+                        html += '<div style="opacity:0.75;">Nothing.</div>';
+                    } else {
+                        html += hints.map(function (hint, i) {
+                            var year = hint.ProductionYear
+                                ? ' (' + escapeHtml(String(hint.ProductionYear)) + ')' : '';
+                            return '<div style="padding:0.3em 0;border-bottom:1px solid rgba(127,127,127,0.14);">'
+                                + escapeHtml(String(i + 1)) + '. ' + escapeHtml(hint.Name) + year
+                                + ' <span style="opacity:0.6;font-size:0.86em;">'
+                                + escapeHtml(hint.Type || '') + '</span></div>';
+                        }).join('');
+                    }
+
+                    target.innerHTML = html;
+                }, function () {
+                    target.innerHTML = head
+                        + '<div>Routed to Jellyfin\'s own search, which this page could not reach to show you.</div>';
+                });
+            }
+
             function runTrySearch() {
                 var query = page.querySelector('#ConciergeTryQuery').value.trim();
                 var target = page.querySelector('#ConciergeTryResults');
@@ -944,24 +996,21 @@
                         head += '<div class="conciergeSectionNote">' + escapeHtml(result.Degraded) + '</div>';
                     }
 
-                    if (!result.Hits || !result.Hits.length) {
-                        target.innerHTML = head + '<div>No Concierge results. '
-                            + 'If the route above says Native, Jellyfin\'s own search already answered this one.</div>';
+                    // A Native or Both route means Jellyfin's own search is part of
+                    // the answer. Showing only the Concierge half would make a
+                    // correctly-routed title lookup look like a failure — which is
+                    // exactly how it looked before this was added.
+                    if (result.Route !== 'Concierge') {
+                        appendNativeResults(target, head, result, query);
                         return;
                     }
 
-                    var rows = result.Hits.map(function (hit, i) {
-                        var year = hit.Year ? ' (' + escapeHtml(String(hit.Year)) + ')' : '';
-                        return '<div style="padding:0.35em 0;border-bottom:1px solid rgba(127,127,127,0.18);">'
-                            + '<strong>' + escapeHtml(String(i + 1)) + '. ' + escapeHtml(hit.Name) + '</strong>'
-                            + year
-                            + '<div style="font-size:0.88em;opacity:0.7;">' + escapeHtml(hit.Why)
-                            + ' · lexical ' + escapeHtml(hit.LexicalRank === null ? '—' : String(hit.LexicalRank))
-                            + ' · semantic ' + escapeHtml(hit.VectorRank === null ? '—' : String(hit.VectorRank))
-                            + '</div></div>';
-                    }).join('');
+                    if (!result.Hits || !result.Hits.length) {
+                        target.innerHTML = head + '<div>Nothing found.</div>';
+                        return;
+                    }
 
-                    target.innerHTML = head + rows;
+                    target.innerHTML = head + renderHits(result.Hits);
                 }, function () {
                     target.innerHTML = 'The search request failed. Check the server log.';
                 });
