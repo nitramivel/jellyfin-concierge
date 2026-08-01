@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.11.4.0",
+        "changelog": "Posters render: our own CSS was overriding Jellyfin's absolutely-positioned card content into a zero-height box. Also drops the unnecessary access token from image URLs, restores the native heading indent, and dims the row while a query settles instead of blanking it.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.4.0/concierge_0.11.4.0.zip",
+        "checksum": "2e57b5fdd579ff21ea9ad5590d58bce7",
+        "timestamp": "2026-08-01T22:52:16Z"
+      },
+      {
         "version": "0.11.3.0",
         "changelog": "Fixes poster requests returning HTTP 403 by authenticating generated Jellyfin image URLs with the current user's API token. Removes the remaining result-text inset and slightly reduces the Concierge heading indentation.",
         "targetAbi": "10.11.11.0",

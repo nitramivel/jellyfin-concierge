@@ -40,18 +40,15 @@
         '#concierge-results .concierge-why{opacity:.72;font-size:.86em;white-space:normal;' +
         'padding:0 .4em;display:-webkit-box;-webkit-box-orient:vertical;' +
         '-webkit-line-clamp:2;overflow:hidden;min-height:2.4em;}' +
-        '#concierge-results .concierge-heading{padding-left:2.5vw!important;}' +
         '#concierge-results .concierge-card .cardText{text-align:left!important;' +
         'padding-left:0;padding-right:.4em;}' +
         '#concierge-results .concierge-note{opacity:.6;font-size:.7em;font-weight:400;}' +
         '#concierge-results .concierge-degraded{opacity:.65;font-size:.85em;' +
         'margin:.4em 0 0 .8em;}' +
-        // Declared rather than inherited: the timestamp is positioned against the
-        // poster, and if the client's own cardImageContainer ever stops being a
-        // positioned ancestor the stamp would fly to the corner of the page.
-        '#concierge-results .cardImageContainer{position:relative;}' +
-        '#concierge-results .concierge-poster{display:block;width:100%;height:100%;' +
-        'object-fit:cover;}' +
+        // A newer query is settling. Dimming beats blanking: emptying the row on
+        // every keystroke left a hole for the two-second debounce plus six seconds
+        // of query, which reads as broken rather than as busy.
+        '#concierge-results.concierge-pending{opacity:.45;transition:opacity .15s;}' +
         '#concierge-results .concierge-stamp{position:absolute;right:.4em;bottom:.4em;' +
         'background:rgba(0,0,0,.72);color:#fff;border-radius:.25em;padding:.1em .4em;' +
         'font-size:.78em;}';
@@ -190,6 +187,20 @@
         return '#/details?id=' + encodeURIComponent(id);
     }
 
+    /* No access token in the URL.
+     *
+     * An earlier build appended one after a bare image request answered 403 — but
+     * that request used an all-zeros GUID, so the 403 was Jellyfin refusing an item
+     * that does not exist, not refusing an anonymous caller. Measured against a
+     * real item on this server:
+     *
+     *   /Items/e910fc1406cb2b9717a41c6b70d67265/Images/Primary?maxHeight=330
+     *     -> 200 image/jpeg, 62,115 bytes
+     *
+     * Jellyfin's image routes allow anonymous access by design, which is why an
+     * <img> can load one at all. Putting the token in a src attribute would leak it
+     * into the DOM, referrers and every proxy log between here and the browser, to
+     * buy nothing. */
     function posterUrl(itemId) {
         if (!window.ApiClient) {
             return '';
@@ -200,21 +211,9 @@
             // same API, retaining getImageUrl only for older web clients which do
             // not expose the scaled helper.
             var getUrl = window.ApiClient.getScaledImageUrl || window.ApiClient.getImageUrl;
-            var options = { type: 'Primary', maxHeight: 600 };
-            var token = window.ApiClient.accessToken
-                ? window.ApiClient.accessToken()
-                : '';
-
-            // Image elements cannot carry ApiClient's Authorization header. This
-            // server correctly answers a bare /Items/{id}/Images/Primary request
-            // with 403, so authenticate the URL itself just as Jellyfin does for
-            // browser download URLs.
-            if (token) {
-                options.api_key = token;
-            }
 
             return getUrl
-                ? getUrl.call(window.ApiClient, itemId, options)
+                ? getUrl.call(window.ApiClient, itemId, { type: 'Primary', maxHeight: 600 })
                 : '';
         } catch (e) {
             return '';
@@ -233,10 +232,14 @@
      * elements we created ourselves. */
     function card(itemId, title, why, stamp) {
         var url = posterUrl(itemId);
-        var poster = url
-            ? '<img class="concierge-poster" src="' + escapeHtml(url)
-                + '" alt="" loading="lazy">'
-            : '';
+
+        // Background image, not an <img>. ".cardImageContainer" and ".coveredImage"
+        // exist in Jellyfin's stylesheet precisely to paint one — background-size:
+        // cover, background-position:50%, background-clip:content-box — and both
+        // the client's own cards and Jellyfin Enhanced's Seerr cards fill them this
+        // way on this page. Using their path means their rules do the work.
+        var image = 'background-color:rgba(127,127,127,.18);'
+            + (url ? 'background-image:url(\'' + escapeHtml(url) + '\');' : '');
         var href = escapeHtml(itemLink(itemId));
 
         return '<div class="card overflowPortraitCard card-hoverable card-withuserdata concierge-card">'
@@ -244,8 +247,7 @@
             + '<div class="cardScalable">'
             + '<div class="cardPadder cardPadder-overflowPortrait"></div>'
             + '<a class="cardImageContainer coveredImage cardContent" href="' + href
-            + '" style="background:rgba(127,127,127,.18);">'
-            + poster
+            + '" style="' + image + '">'
             + (stamp ? '<div class="concierge-stamp">' + escapeHtml(stamp) + '</div>' : '')
             + '</a>'
             + '</div>'
@@ -302,6 +304,10 @@
         if (!el) {
             return;
         }
+
+        // Whatever we paint below is the answer to the query on screen, so the row
+        // stops being stale the moment it lands.
+        el.classList.remove('concierge-pending');
 
         // The router has established that native substring search is the right
         // answer. Showing the free Concierge retrieval beside it would duplicate
@@ -388,11 +394,32 @@
     }
 
     function clearResults() {
-        var page = searchPage();
-        var el = page && page.querySelector('#' + CONTAINER_ID);
+        var el = ourSection();
 
         if (el) {
             el.innerHTML = '';
+            el.classList.remove('concierge-pending');
+        }
+    }
+
+    function ourSection() {
+        var page = searchPage();
+
+        return page ? page.querySelector('#' + CONTAINER_ID) : null;
+    }
+
+    /* The query on screen has moved on but an answer for it is still seconds away.
+     *
+     * Blanking the row here was the obvious thing and it was wrong: between the
+     * two-second settle and a five-to-nine-second search, the section was empty for
+     * the best part of ten seconds after every keystroke, which reads as broken
+     * rather than as busy. Dimming says the same thing — this is stale — without
+     * taking away the answer the reader already has. */
+    function markPending() {
+        var el = ourSection();
+
+        if (el && el.innerHTML !== '') {
+            el.classList.add('concierge-pending');
         }
     }
 
@@ -424,11 +451,15 @@
         // stale cards while the new debounce is running.
         inFlight = null;
         inFlightQuery = '';
-        clearResults();
 
         if (query.length < MIN_QUERY_LENGTH) {
+            // Below the threshold nothing is coming, so there is nothing to be
+            // pending about — take the row away rather than leaving it dimmed.
+            clearResults();
             return;
         }
+
+        markPending();
 
         timer = setTimeout(function () { run(query); }, DEBOUNCE_MS);
     }

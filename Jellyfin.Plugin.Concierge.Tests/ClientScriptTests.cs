@@ -173,13 +173,55 @@ namespace Jellyfin.Plugin.Concierge.Tests
             Assert.DoesNotContain("vertical-wrap concierge-row", Script, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// The poster fix, and the two things that broke it.
+        /// </summary>
+        /// <remarks>
+        /// The posters were blank for four releases because of one line of our own
+        /// CSS: <c>#concierge-results .cardImageContainer{position:relative}</c>.
+        /// Jellyfin's <c>.cardContent</c> is <c>position:absolute</c> with
+        /// <c>contain:strict</c> and <c>height:100%</c> — inset to fill
+        /// <c>.cardScalable</c>, whose own height comes from the sibling
+        /// <c>.cardPadder</c>. Our rule was more specific, so it put the box back in
+        /// normal flow, where a percentage height has no definite parent to resolve
+        /// against and <c>contain:size</c> makes the result zero. The card kept its
+        /// full portrait height from the padder while the image area collapsed,
+        /// which is exactly the reported symptom.
+        /// <para>
+        /// The token went the same way: it was added after a bare image request
+        /// answered 403, but that request used an all-zeros GUID. A real one returns
+        /// 200 image/jpeg with no credentials at all.
+        /// </para>
+        /// </remarks>
         [Fact]
-        public void PostersUseJellyfinsSupportedScaledImageUrlAndARealImageElement()
+        public void PostersDoNotFightJellyfinsOwnCardLayout()
         {
             Assert.Contains("window.ApiClient.getScaledImageUrl", Script, StringComparison.Ordinal);
-            Assert.Contains("options.api_key = token", Script, StringComparison.Ordinal);
-            Assert.Contains("<img class=\"concierge-poster\"", Script, StringComparison.Ordinal);
-            Assert.Contains("object-fit:cover", Script, StringComparison.Ordinal);
+
+            Assert.DoesNotContain("cardImageContainer{position", Script, StringComparison.Ordinal);
+            Assert.DoesNotContain("api_key", Script, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PostersArePaintedTheWayThoseClassesExpect()
+        {
+            // ".cardImageContainer" and ".coveredImage" are background-image classes
+            // in Jellyfin's stylesheet — background-size:cover, background-position:
+            // 50%, background-clip:content-box. Filling them any other way means
+            // reimplementing what they already do.
+            var card = Between(Script, "function card(", "function section(");
+
+            Assert.Contains("background-image:url(", card, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheHeadingUsesJellyfinsOwnIndentRatherThanOneOfOurs()
+        {
+            // Native section headings indent by ".padded-left", which is 3.3%.
+            // Overriding it with a hand-picked vw value is what put the heading out
+            // of line with every other row on the page.
+            Assert.Contains("padded-left", Script, StringComparison.Ordinal);
+            Assert.DoesNotContain("concierge-heading{padding-left", Script, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -218,7 +260,31 @@ namespace Jellyfin.Plugin.Concierge.Tests
             var onInput = Between(Script, "function onInput(", "function attach(");
 
             Assert.Contains("inFlight = null", onInput, StringComparison.Ordinal);
-            Assert.Contains("clearResults()", onInput, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// A settling query dims the row; it does not empty it.
+        /// </summary>
+        /// <remarks>
+        /// Blanking on every keystroke left the section empty for the two-second
+        /// settle plus a five-to-nine-second search — the best part of ten seconds
+        /// of nothing, which reads as a broken feature rather than a busy one. The
+        /// row is only emptied when the query falls below the minimum length, where
+        /// no answer is coming at all.
+        /// </remarks>
+        [Fact]
+        public void ASettlingQueryDimsTheRowInsteadOfEmptyingIt()
+        {
+            var onInput = Between(Script, "function onInput(", "function attach(");
+
+            Assert.Contains("markPending()", onInput, StringComparison.Ordinal);
+
+            var beforeMinCheck = onInput[..onInput.IndexOf("markPending()", StringComparison.Ordinal)];
+            var clears = Regex.Matches(beforeMinCheck, @"clearResults\(\)").Count;
+
+            Assert.True(
+                clears == 1,
+                "clearResults() may only run on the below-minimum path, not on every keystroke");
         }
 
         [Fact]
@@ -233,7 +299,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 .Select(m => m.Groups[1].Value)
                 // These are complete markup fragments/attributes assembled above;
                 // every server value inside them has already passed escapeHtml.
-                .Where(name => name != "href" && name != "poster")
+                .Where(name => name != "href" && name != "image")
                 .ToList();
 
             Assert.True(
