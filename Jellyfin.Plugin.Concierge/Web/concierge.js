@@ -40,8 +40,9 @@
         '#concierge-results .concierge-why{opacity:.72;font-size:.86em;white-space:normal;' +
         'padding:0 .4em;display:-webkit-box;-webkit-box-orient:vertical;' +
         '-webkit-line-clamp:2;overflow:hidden;min-height:2.4em;}' +
+        '#concierge-results .concierge-heading{padding-left:2.5vw!important;}' +
         '#concierge-results .concierge-card .cardText{text-align:left!important;' +
-        'padding-left:.4em;padding-right:.4em;}' +
+        'padding-left:0;padding-right:.4em;}' +
         '#concierge-results .concierge-note{opacity:.6;font-size:.7em;font-weight:400;}' +
         '#concierge-results .concierge-degraded{opacity:.65;font-size:.85em;' +
         'margin:.4em 0 0 .8em;}' +
@@ -199,9 +200,21 @@
             // same API, retaining getImageUrl only for older web clients which do
             // not expose the scaled helper.
             var getUrl = window.ApiClient.getScaledImageUrl || window.ApiClient.getImageUrl;
+            var options = { type: 'Primary', maxHeight: 600 };
+            var token = window.ApiClient.accessToken
+                ? window.ApiClient.accessToken()
+                : '';
+
+            // Image elements cannot carry ApiClient's Authorization header. This
+            // server correctly answers a bare /Items/{id}/Images/Primary request
+            // with 403, so authenticate the URL itself just as Jellyfin does for
+            // browser download URLs.
+            if (token) {
+                options.api_key = token;
+            }
 
             return getUrl
-                ? getUrl.call(window.ApiClient, itemId, { type: 'Primary', maxHeight: 600 })
+                ? getUrl.call(window.ApiClient, itemId, options)
                 : '';
         } catch (e) {
             return '';

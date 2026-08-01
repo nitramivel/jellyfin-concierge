@@ -177,6 +177,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
         public void PostersUseJellyfinsSupportedScaledImageUrlAndARealImageElement()
         {
             Assert.Contains("window.ApiClient.getScaledImageUrl", Script, StringComparison.Ordinal);
+            Assert.Contains("options.api_key = token", Script, StringComparison.Ordinal);
             Assert.Contains("<img class=\"concierge-poster\"", Script, StringComparison.Ordinal);
             Assert.Contains("object-fit:cover", Script, StringComparison.Ordinal);
         }

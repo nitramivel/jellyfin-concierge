@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.11.3.0",
+        "changelog": "Fixes poster requests returning HTTP 403 by authenticating generated Jellyfin image URLs with the current user's API token. Removes the remaining result-text inset and slightly reduces the Concierge heading indentation.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.3.0/concierge_0.11.3.0.zip",
+        "checksum": "af8eaadfef3bfccfe1c8d2877341d2d7",
+        "timestamp": "2026-08-01T13:20:24Z"
+      },
+      {
         "version": "0.11.2.0",
         "changelog": "Restores Concierge poster artwork by using Jellyfin 10.11's supported scaled-image URL helper and rendering a real image element inside each card. Result titles and explanations now align with the poster's left edge.",
         "targetAbi": "10.11.11.0",
