@@ -36,6 +36,16 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         /// — the index-time enrichment pass.
         /// </summary>
         Enrichment = 1,
+
+        /// <summary>
+        /// <c>{"semantic","filters":{...},"quote"}</c> — the per-query plan pass.
+        /// </summary>
+        SearchPlan = 2,
+
+        /// <summary>
+        /// <c>{"order":[{"i","why"}]}</c> — the per-query re-rank pass.
+        /// </summary>
+        Rerank = 3,
     }
 
     /// <summary>

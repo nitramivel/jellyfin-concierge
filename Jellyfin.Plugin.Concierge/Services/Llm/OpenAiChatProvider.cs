@@ -314,14 +314,117 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         private static object? BuildResponseSchema(ResponseShape shape) => shape switch
         {
             ResponseShape.Enrichment => BuildEnrichmentSchema(),
+            ResponseShape.SearchPlan => BuildSearchPlanSchema(),
+            ResponseShape.Rerank => BuildRerankSchema(),
             _ => null,
         };
 
         private static string SchemaName(ResponseShape shape) => shape switch
         {
             ResponseShape.Enrichment => "concierge_enrichment",
+            ResponseShape.SearchPlan => "concierge_search_plan",
+            ResponseShape.Rerank => "concierge_rerank",
             _ => "concierge_response",
         };
+
+        /// <summary>
+        /// The plan contract in OpenAI strict-mode dialect.
+        /// </summary>
+        /// <remarks>
+        /// The nullable fields are declared <c>["integer","null"]</c> rather than
+        /// omitted, because strict mode requires every property in <c>required</c> —
+        /// and "no year was mentioned" has to be expressible. Without an explicit null
+        /// the model must invent a year to satisfy the schema, which is exactly the
+        /// wrong filter the prompt spends its length warning against.
+        /// </remarks>
+        private static object BuildSearchPlanSchema()
+        {
+            var strings = new { type = "array", items = new { type = "string" } };
+            var nullableInteger = new { type = new[] { "integer", "null" } };
+
+            var filters = new
+            {
+                type = "object",
+                properties = new
+                {
+                    types = strings,
+                    yearFrom = nullableInteger,
+                    yearTo = nullableInteger,
+                    genres = strings,
+                    people = strings,
+                    runtimeMaxMinutes = nullableInteger,
+                    watchState = new
+                    {
+                        type = "string",
+                        description = "any, unwatched, watched or favorite.",
+                    },
+                },
+                required = new[]
+                {
+                    "types", "yearFrom", "yearTo", "genres", "people", "runtimeMaxMinutes", "watchState",
+                },
+                additionalProperties = false,
+            };
+
+            return new
+            {
+                type = "object",
+                properties = new
+                {
+                    semantic = new
+                    {
+                        type = "string",
+                        description = "What they are describing, with constraint words removed. Never empty.",
+                    },
+                    filters,
+                    quote = new
+                    {
+                        type = new[] { "string", "null" },
+                        description = "Dialogue they are reciting, or null.",
+                    },
+                },
+                required = new[] { "semantic", "filters", "quote" },
+                additionalProperties = false,
+            };
+        }
+
+        /// <summary>
+        /// The re-rank contract in OpenAI strict-mode dialect.
+        /// </summary>
+        private static object BuildRerankSchema()
+        {
+            var entry = new
+            {
+                type = "object",
+                properties = new
+                {
+                    i = new { type = "integer", description = "A number from the shortlist, used once." },
+                    why = new
+                    {
+                        type = "string",
+                        description = "One clause under twelve words. Never a twist or an ending.",
+                    },
+                },
+                required = new[] { "i", "why" },
+                additionalProperties = false,
+            };
+
+            return new
+            {
+                type = "object",
+                properties = new
+                {
+                    order = new
+                    {
+                        type = "array",
+                        description = "Every shortlist number, once each, best first.",
+                        items = entry,
+                    },
+                },
+                required = new[] { "order" },
+                additionalProperties = false,
+            };
+        }
 
         /// <summary>
         /// The enrichment contract in OpenAI strict-mode dialect.

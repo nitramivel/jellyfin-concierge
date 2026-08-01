@@ -232,8 +232,115 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         private static object? BuildResponseSchema(ResponseShape shape) => shape switch
         {
             ResponseShape.Enrichment => BuildEnrichmentSchema(),
+            ResponseShape.SearchPlan => BuildSearchPlanSchema(),
+            ResponseShape.Rerank => BuildRerankSchema(),
             _ => null,
         };
+
+        /// <summary>
+        /// The plan contract in Gemini's dialect.
+        /// </summary>
+        /// <remarks>
+        /// Gemini spells optionality as <c>nullable</c> on the field rather than as a
+        /// union type, which is the single most likely thing to be copied wrongly from
+        /// the OpenAI builder next door. Getting it wrong forces the model to invent a
+        /// year rather than say there was not one.
+        /// </remarks>
+        private static object BuildSearchPlanSchema()
+        {
+            var strings = new { type = "ARRAY", items = new { type = "STRING" } };
+            var nullableInteger = new { type = "INTEGER", nullable = true };
+
+            var filters = new
+            {
+                type = "OBJECT",
+                properties = new
+                {
+                    types = strings,
+                    yearFrom = nullableInteger,
+                    yearTo = nullableInteger,
+                    genres = strings,
+                    people = strings,
+                    runtimeMaxMinutes = nullableInteger,
+                    watchState = new
+                    {
+                        type = "STRING",
+                        description = "any, unwatched, watched or favorite.",
+                    },
+                },
+                required = new[] { "types", "genres", "people", "watchState" },
+                propertyOrdering = new[]
+                {
+                    "types", "yearFrom", "yearTo", "genres", "people", "runtimeMaxMinutes", "watchState",
+                },
+            };
+
+            return new
+            {
+                type = "OBJECT",
+                properties = new
+                {
+                    semantic = new
+                    {
+                        type = "STRING",
+                        description = "What they are describing, with constraint words removed. Never empty.",
+                    },
+                    filters,
+                    quote = new
+                    {
+                        type = "STRING",
+                        nullable = true,
+                        description = "Dialogue they are reciting, or null.",
+                    },
+                },
+                required = new[] { "semantic", "filters" },
+                propertyOrdering = new[] { "semantic", "filters", "quote" },
+            };
+        }
+
+        /// <summary>
+        /// The re-rank contract in Gemini's dialect.
+        /// </summary>
+        /// <remarks>
+        /// <c>propertyOrdering</c> puts the index before the reason, so the model
+        /// commits to a number before writing prose about it. A model that writes the
+        /// justification first has to hold the index in mind across the whole clause,
+        /// and that is where off-by-one answers come from.
+        /// </remarks>
+        private static object BuildRerankSchema()
+        {
+            var entry = new
+            {
+                type = "OBJECT",
+                properties = new
+                {
+                    i = new { type = "INTEGER", description = "A number from the shortlist, used once." },
+                    why = new
+                    {
+                        type = "STRING",
+                        description = "One clause under twelve words. Never a twist or an ending.",
+                    },
+                },
+                required = new[] { "i", "why" },
+                propertyOrdering = new[] { "i", "why" },
+            };
+
+            return new
+            {
+                type = "OBJECT",
+                properties = new
+                {
+                    order = new
+                    {
+                        type = "ARRAY",
+                        description = "Every shortlist number, once each, best first.",
+                        items = entry,
+                    },
+                },
+                required = new[] { "order" },
+                propertyOrdering = new[] { "order" },
+            };
+        }
 
         /// <summary>
         /// The enrichment contract in Gemini's dialect.
