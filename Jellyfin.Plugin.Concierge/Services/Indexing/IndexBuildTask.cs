@@ -55,7 +55,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
             try
             {
-                var result = await _indexer.BuildAsync(config, progress, cancellationToken).ConfigureAwait(false);
+                var result = await _indexer
+                    .BuildAsync(config, "scheduled", progress, cancellationToken)
+                    .ConfigureAwait(false);
 
                 // The new index is on disk; drop the copy the search path is holding
                 // so the next query picks it up rather than serving the old one until
@@ -64,16 +66,22 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
                 _logger.LogInformation(
                     "Concierge: index built — {Items} item(s), {Rows} row(s), {Embedded} embedded, "
-                    + "{Reused} reused, {Enriched} enriched, ${Cost}",
+                    + "{Reused} reused, {Enriched} enriched, ${Cost:F4}. Run {RunId}",
                     result.Items,
                     result.Rows,
                     result.Embedded,
                     result.Reused,
                     result.Enriched,
-                    result.CostUsd.ToString("F4", CultureInfo.InvariantCulture));
+                    result.CostUsd,
+                    result.RunId);
             }
             catch (OperationCanceledException)
             {
+                // Enrichment checkpoints as it goes, so a cancel keeps everything it
+                // has already paid for and the next run resumes rather than restarts.
+                _logger.LogInformation(
+                    "Concierge: index build cancelled. Enrichment completed before the stop was saved; "
+                    + "the next run picks up where this one left off.");
                 throw;
             }
             catch (InvalidOperationException ex)

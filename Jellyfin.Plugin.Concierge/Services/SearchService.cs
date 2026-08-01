@@ -68,7 +68,7 @@ namespace Jellyfin.Plugin.Concierge.Services
     {
         private readonly IIndexStore _store;
         private readonly IEmbeddingProviderFactory _embeddingFactory;
-        private readonly IRunLogStore _runLog;
+        private readonly IQueryLogStore _runLog;
         private readonly ILogger<SearchService> _logger;
         private readonly SemaphoreSlim _loadGate = new(1, 1);
 
@@ -77,7 +77,7 @@ namespace Jellyfin.Plugin.Concierge.Services
         public SearchService(
             IIndexStore store,
             IEmbeddingProviderFactory embeddingFactory,
-            IRunLogStore runLog,
+            IQueryLogStore runLog,
             ILogger<SearchService> logger)
         {
             _store = store;

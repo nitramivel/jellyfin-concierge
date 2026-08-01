@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
     /// magnitude more of them — a file each would fill a directory with thousands of
     /// tiny JSON documents inside a month.
     /// </remarks>
-    public interface IRunLogStore
+    public interface IQueryLogStore
     {
         /// <summary>
         /// Appends one query to the log, evicting the oldest entries past the cap.

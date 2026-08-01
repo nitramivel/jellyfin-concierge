@@ -15,22 +15,35 @@ writes to the library. Reject feature requests that amount to "add a filter UI."
 
 ## Status
 
-**Phases 0 and 1 are written; neither has been run against anything real.**
-114 tests green, warnings as errors, compiling against the real 10.11.11 ABI.
+**Phases 0 and 1 are built and the index has been built for real once.**
+121 tests green, warnings as errors, compiling against the real 10.11.11 ABI.
+
+First real build, 1 Aug 2026: **263 items, 250 enriched, 10 unknown to the
+model, 3 failed, 2,263 vector rows, $0.09, ten minutes** on `gpt-5.6-luna`. The
+plan estimated ~$0.51 on Haiku-tier for a library this size, so the cost model
+is if anything pessimistic.
+
+**Two things that run taught us, both now fixed in 0.3.0.0:** enrichment saved
+nothing until the whole pass finished, so cancelling threw away paid-for work;
+and a long pass logged nothing between "starting" and "finished". Enrichment now
+checkpoints every five batches and the run log records every call, its cost, and
+every item that came out unenriched with a reason.
+
+**Leave `IncludeEpisodes` off.** On, this library goes from 263 items to 5,338
+and from 22 batches to 445. The model does not know individual episodes, so it
+correctly declines to invent them and you pay for ~5,000 empty answers.
 
 What exists: the plugin skeleton and both profile lists (phase 0); documents,
 hashing, the enrichment pass, BM25, vectors, fusion, the router, the index
 store, the daily build task and `POST /Concierge/Search` (phase 1).
 
-**What is unproven, and it is the important half.** Nothing has been installed
-on the live server, no index has ever been built, and the 40-query evaluation
-set in `eval/queries.md` has no expected answers because the library could not
-be read. `eval/results-phase1.md` records what *was* measured — the retrieval
-stack over a fixture library with a stand-in embedder — and is explicit that
-this proves the pipeline rather than the model. **Do not treat any quality claim
-about this plugin as established.** The cheapest unblock is a local embedding
-model (LM Studio or Ollama), which makes the entire free path measurable for
-nothing.
+**What is still unproven is search quality.** The index exists, but the
+40-query evaluation set in `eval/queries.md` has no expected answers yet, so
+nobody has measured recall against this library. `eval/results-phase1.md`
+records what *was* measured — the retrieval stack over a fixture library with a
+stand-in embedder — and is explicit that this proves the pipeline rather than
+the model. **Do not treat any quality claim about this plugin as established
+until that set is filled in and run.**
 
 The first real measurement to take is the one `eval/README.md` names: the same
 set with `EnableEnrichment` off, then on. That delta says whether enrichment is

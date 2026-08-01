@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.3.0.0",
+        "changelog": "Enrichment now checkpoints every five batches, so cancelling or crashing a build keeps everything already paid for. Adds a per-build run log recording every model call with its tokens and cost, every step, and every item left unenriched with a reason; a progress heartbeat in the server log; and a build history panel on the settings page.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.3.0.0/concierge_0.3.0.0.zip",
+        "checksum": "92a4b5191a006163f399581b91f05f88",
+        "timestamp": "2026-08-01T06:12:06Z"
+      },
+      {
         "version": "0.2.0.0",
         "changelog": "Phases 0 and 1: plugin skeleton, dual model profile system, local hybrid index with the enrichment pass, BM25 + vector retrieval with rank fusion, query router, and POST /Concierge/Search. Not yet exercised against a live server.",
         "targetAbi": "10.11.11.0",

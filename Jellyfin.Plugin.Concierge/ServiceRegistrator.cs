@@ -27,7 +27,13 @@ namespace Jellyfin.Plugin.Concierge
             serviceCollection.AddSingleton<ILibraryScanner, LibraryScanner>();
             serviceCollection.AddSingleton<ILlmProviderFactory, LlmProviderFactory>();
             serviceCollection.AddSingleton<IEmbeddingProviderFactory, EmbeddingProviderFactory>();
-            serviceCollection.AddSingleton<IRunLogStore, RunLogStore>();
+            serviceCollection.AddSingleton<IQueryLogStore, QueryLogStore>();
+
+            // A singleton because it holds the in-flight run in memory: the config
+            // page polls for progress, and that must not mean reading a run document
+            // — every prompt in it — off disk on each poll.
+            serviceCollection.AddSingleton<IIndexRunLogStore, IndexRunLogStore>();
+
             serviceCollection.AddSingleton<IIndexStore, IndexStore>();
             serviceCollection.AddSingleton<EnrichmentService>();
             serviceCollection.AddSingleton<ItemIndexer>();

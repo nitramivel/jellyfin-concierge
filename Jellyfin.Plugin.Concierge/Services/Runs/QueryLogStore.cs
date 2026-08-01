@@ -11,16 +11,16 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Concierge.Services.Runs
 {
     /// <summary>
-    /// Default <see cref="IRunLogStore"/>: one capped JSON file under the plugin's
+    /// Default <see cref="IQueryLogStore"/>: one capped JSON file under the plugin's
     /// data directory.
     /// </summary>
-    public sealed class RunLogStore : IRunLogStore
+    public sealed class QueryLogStore : IQueryLogStore
     {
         /// <summary>How many queries the log keeps before evicting the oldest.</summary>
         public const int MaxEntries = 200;
 
         private readonly string _path;
-        private readonly ILogger<RunLogStore> _logger;
+        private readonly ILogger<QueryLogStore> _logger;
         private readonly SemaphoreSlim _gate = new(1, 1);
 
         private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -28,7 +28,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
             WriteIndented = false,
         };
 
-        public RunLogStore(IApplicationPaths applicationPaths, ILogger<RunLogStore> logger)
+        public QueryLogStore(IApplicationPaths applicationPaths, ILogger<QueryLogStore> logger)
         {
             ArgumentNullException.ThrowIfNull(applicationPaths);
 
@@ -73,7 +73,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
                     run.ResultCount,
                     run.DurationMs,
                     run.Calls?.Count ?? 0,
-                    run.TotalCostUsd.ToString("F4", CultureInfo.InvariantCulture));
+                    run.TotalCostUsd);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

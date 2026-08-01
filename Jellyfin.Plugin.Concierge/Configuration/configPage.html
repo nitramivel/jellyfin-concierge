@@ -21,6 +21,20 @@
                     border: 1px solid rgba(127,127,127,0.28); border-radius: 10px;
                 }
                 .conciergeEmpty { margin-top: 1em; opacity: 0.75; }
+                .conciergeTrack {
+                    height: 8px; border-radius: 999px; overflow: hidden; margin-top: 0.7em;
+                    background: rgba(127,127,127,0.25);
+                }
+                .conciergeFill {
+                    height: 100%; width: 0; border-radius: 999px;
+                    background: linear-gradient(90deg, #00a4dc, #56cfe1);
+                    transition: width 500ms cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .conciergeRun {
+                    padding: 0.55em 0; border-bottom: 1px solid rgba(127,127,127,0.18);
+                }
+                .conciergeRunMeta { font-size: 0.87em; opacity: 0.72; margin-top: 0.15em; }
+                .conciergeBad { color: #e8a33d; }
             </style>
 
             <form id="ConciergeConfigForm">
@@ -59,6 +73,27 @@
                     </div>
 
                     <div id="ConciergeTryResults" style="margin-top:1em;"></div>
+                </div>
+
+                <!-- Index builds -->
+                <div class="conciergeSection">
+                    <h3>Index builds</h3>
+                    <div class="conciergeSectionNote">
+                        What each build did and what it cost. Enrichment saves every few batches, so stopping a build
+                        keeps everything already paid for and the next one resumes rather than starting over.
+                    </div>
+
+                    <div id="ConciergeRunning" class="conciergeEditor hide">
+                        <div id="ConciergeRunningPhase"><strong>Building&hellip;</strong></div>
+                        <div class="conciergeTrack"><div id="ConciergeRunningFill" class="conciergeFill"></div></div>
+                        <div id="ConciergeRunningDetail" class="conciergeSectionNote" style="margin:0.6em 0 0 0;"></div>
+                    </div>
+
+                    <div style="margin-top:0.8em;">
+                        <button is="emby-button" type="button" id="ConciergeRefreshRuns" class="raised">Refresh</button>
+                    </div>
+
+                    <div id="ConciergeRuns" style="margin-top:1em;"></div>
                 </div>
 
                 <!-- Chat model profiles -->
@@ -940,7 +975,123 @@
                 }
             });
 
-            page.addEventListener('pageshow', refreshStatus);
+            // ---- index builds ----
+
+            function money(value) {
+                return '$' + (value || 0).toFixed(4);
+            }
+
+            function describeRun(run) {
+                var when = new Date(run.StartedUtc).toLocaleString();
+                var bad = run.Status === 'failed';
+
+                var head = '<strong>' + escapeHtml(run.Status) + '</strong> · ' + escapeHtml(when)
+                    + ' · ' + escapeHtml(run.Trigger);
+
+                var meta = escapeHtml(String(run.ItemsIndexed)) + ' item(s), '
+                    + escapeHtml(String(run.ItemsEnriched)) + ' enriched, '
+                    + escapeHtml(String(run.RowsEmbedded)) + ' embedded, '
+                    + escapeHtml(String(run.RowsReused)) + ' reused · '
+                    + escapeHtml(money(run.CostUsd));
+
+                if (run.FinishedUtc) {
+                    var seconds = Math.round(
+                        (new Date(run.FinishedUtc) - new Date(run.StartedUtc)) / 1000);
+                    meta += ' · ' + escapeHtml(String(seconds)) + 's';
+                }
+
+                if (run.Error) {
+                    meta += '<br/><span class="conciergeBad">' + escapeHtml(run.Error) + '</span>';
+                }
+
+                return '<div class="conciergeRun' + (bad ? ' conciergeBad' : '') + '">'
+                    + '<div>' + head + '</div>'
+                    + '<div class="conciergeRunMeta">' + meta + '</div></div>';
+            }
+
+            function loadRuns() {
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Index/Runs'),
+                    dataType: 'json'
+                }).then(function (runs) {
+                    var target = page.querySelector('#ConciergeRuns');
+                    if (!runs || !runs.length) {
+                        target.innerHTML = '<div class="conciergeEmpty">No builds recorded yet.</div>';
+                        return;
+                    }
+
+                    target.innerHTML = runs.map(describeRun).join('');
+                }, function () {
+                    page.querySelector('#ConciergeRuns').innerHTML = 'Could not read the build history.';
+                });
+            }
+
+            // Polls only while a build is in flight, and stops as soon as one is not.
+            // The endpoint reads from memory, so this costs nothing but a round trip.
+            var pollTimer = null;
+
+            function pollCurrent() {
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Index/Current'),
+                    dataType: 'json'
+                }).then(function (run) {
+                    var panel = page.querySelector('#ConciergeRunning');
+
+                    if (!run) {
+                        if (panel.classList.contains('hide') === false) {
+                            // Just finished — pick up the completed row.
+                            loadRuns();
+                            refreshStatus();
+                        }
+
+                        panel.classList.add('hide');
+                        stopPolling();
+                        return;
+                    }
+
+                    panel.classList.remove('hide');
+                    page.querySelector('#ConciergeRunningPhase').innerHTML =
+                        '<strong>' + escapeHtml(run.Phase || 'working') + '</strong> — '
+                        + escapeHtml(String(Math.round(run.Percent))) + '%';
+                    page.querySelector('#ConciergeRunningFill').style.width = Math.round(run.Percent) + '%';
+                    page.querySelector('#ConciergeRunningDetail').innerHTML =
+                        escapeHtml(String(run.ItemsEnriched)) + ' enriched so far · '
+                        + escapeHtml(money(run.CostUsd)) + ' spent';
+                }, function () {
+                    stopPolling();
+                });
+            }
+
+            function startPolling() {
+                if (pollTimer === null) {
+                    pollTimer = setInterval(pollCurrent, 2500);
+                }
+            }
+
+            function stopPolling() {
+                if (pollTimer !== null) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+            }
+
+            page.querySelector('#ConciergeRefreshRuns').addEventListener('click', function () {
+                loadRuns();
+                pollCurrent();
+                startPolling();
+            });
+
+            page.addEventListener('pageshow', function () {
+                refreshStatus();
+                loadRuns();
+                pollCurrent();
+                startPolling();
+            });
+
+            // Leaving the page must not leave a timer running against a dead DOM.
+            page.addEventListener('pagehide', stopPolling);
         })();
     </script>
 </div>

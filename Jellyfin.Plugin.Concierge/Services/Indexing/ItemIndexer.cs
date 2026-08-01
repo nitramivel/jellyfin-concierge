@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,6 +10,7 @@ using Jellyfin.Plugin.Concierge.Core.Llm;
 using Jellyfin.Plugin.Concierge.Core.Retrieval;
 using Jellyfin.Plugin.Concierge.Services.Embeddings;
 using Jellyfin.Plugin.Concierge.Services.Library;
+using Jellyfin.Plugin.Concierge.Services.Runs;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -17,6 +18,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Concierge.Services.Indexing
 {
     /// <summary>What one index build did.</summary>
+    /// <param name="RunId">The run log this build wrote.</param>
     /// <param name="Items">How many items were indexed.</param>
     /// <param name="Rows">How many vector rows the index holds.</param>
     /// <param name="Embedded">How many rows had to be embedded this run.</param>
@@ -24,6 +26,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
     /// <param name="Enriched">How many items carry non-empty enrichment.</param>
     /// <param name="CostUsd">What the run cost.</param>
     public sealed record IndexBuildResult(
+        Guid RunId,
         int Items,
         int Rows,
         int Embedded,
@@ -41,6 +44,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
         private readonly IIndexStore _store;
         private readonly EnrichmentService _enrichment;
         private readonly IEmbeddingProviderFactory _embeddingFactory;
+        private readonly IIndexRunLogStore _runLogs;
         private readonly ILogger<ItemIndexer> _logger;
 
         public ItemIndexer(
@@ -49,6 +53,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             IIndexStore store,
             EnrichmentService enrichment,
             IEmbeddingProviderFactory embeddingFactory,
+            IIndexRunLogStore runLogs,
             ILogger<ItemIndexer> logger)
         {
             _scanner = scanner;
@@ -56,6 +61,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             _store = store;
             _enrichment = enrichment;
             _embeddingFactory = embeddingFactory;
+            _runLogs = runLogs;
             _logger = logger;
         }
 
@@ -63,27 +69,86 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
         /// Builds or refreshes the index.
         /// </summary>
         /// <param name="config">The plugin configuration.</param>
+        /// <param name="trigger">"scheduled" or "manual".</param>
         /// <param name="progress">Reports 0-100, or null.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>What the build did.</returns>
         public async Task<IndexBuildResult> BuildAsync(
             PluginConfiguration config,
+            string trigger,
             IProgress<double>? progress,
             CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(config);
 
+            var runLog = _runLogs.Begin(trigger, new Dictionary<string, object?>
+            {
+                ["includeEpisodes"] = config.IncludeEpisodes,
+                ["enableEnrichment"] = config.EnableEnrichment,
+                ["enrichmentBatchSize"] = config.EnrichmentBatchSize,
+                ["maxAsksPerItem"] = config.MaxAsksPerItem,
+                ["embeddingBatchSize"] = config.EmbeddingBatchSize,
+                ["maxOutputTokens"] = config.MaxOutputTokens,
+                ["enableThinking"] = config.EnableThinking,
+            });
+
+            var report = new Progress<double>(p =>
+            {
+                runLog.Progress(p);
+                progress?.Report(p);
+            });
+
+            try
+            {
+                var result = await RunAsync(config, runLog, report, cancellationToken).ConfigureAwait(false);
+                runLog.Complete();
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                // Checkpointed enrichment survives; this is a deliberate stop, not a
+                // defect, and the log records it as such.
+                runLog.Cancel();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                runLog.Fail(ex.Message);
+                throw;
+            }
+        }
+
+        private async Task<IndexBuildResult> RunAsync(
+            PluginConfiguration config,
+            IIndexRunLog runLog,
+            IProgress<double> progress,
+            CancellationToken cancellationToken)
+        {
             var embeddingProfile = EmbeddingProfiles.Resolve(config, config.EmbeddingProfileId);
             var embedder = _embeddingFactory.Create(embeddingProfile);
 
             // 1. Project the library.
+            var scanned = Stopwatch.StartNew();
             var items = _scanner.Scan(config.IncludeEpisodes);
             var documents = items.Select(BuildDocument).ToList();
-            progress?.Report(5);
+            scanned.Stop();
+
+            runLog.Step(
+                "library.scanned",
+                $"{documents.Count} item(s) to index",
+                new Dictionary<string, object?>
+                {
+                    ["items"] = documents.Count,
+                    ["episodes"] = config.IncludeEpisodes,
+                    ["durationMs"] = (int)scanned.ElapsedMilliseconds,
+                });
+
+            progress.Report(5);
 
             // 2. Work out what enrichment is still valid. Anything whose source text
-            //    changed is stale by definition — see DocumentHash for why the hash
-            //    covers the library fields only.
+            //    changed is stale by definition — the hash covers the library fields
+            //    only, so a metadata refresh cannot leave enrichment describing what
+            //    an item used to be.
             var stored = await _store.LoadEnrichmentAsync(cancellationToken).ConfigureAwait(false);
             var keep = new List<StoredEnrichment>();
             var stale = new List<ItemDocument>();
@@ -102,30 +167,44 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 }
             }
 
+            runLog.Step(
+                "enrichment.planned",
+                $"{keep.Count} item(s) already enriched, {stale.Count} to do",
+                new Dictionary<string, object?>
+                {
+                    ["cached"] = keep.Count,
+                    ["stale"] = stale.Count,
+                    ["enabled"] = config.EnableEnrichment,
+                });
+
             decimal cost = 0;
 
-            // 3. Enrich the stale ones.
+            // 3. Enrich the stale ones, checkpointing as it goes.
             if (config.EnableEnrichment && stale.Count > 0)
             {
+                var carried = keep.ToList();
+
                 try
                 {
                     var run = await _enrichment.EnrichAsync(
                             stale,
                             config,
-                            new Progress<double>(p => progress?.Report(5 + (p * 55))),
+                            runLog,
+                            (generated, ct) => _store.SaveEnrichmentAsync(
+                                [.. carried, .. generated], ct),
+                            new Progress<double>(p => progress.Report(5 + (p * 55))),
                             cancellationToken)
                         .ConfigureAwait(false);
 
                     keep.AddRange(run.Enrichment);
-                    cost += run.Calls.Sum(c => c.EstimatedCostUsd);
+                    cost += run.CostUsd;
                 }
                 catch (InvalidOperationException ex)
                 {
                     // No chat profile configured. Degrade rather than fail: an index
                     // built from overviews alone is worse at plot and mood recall but
-                    // it is a working search index, and refusing to build one would
-                    // mean a fresh install with only an embedding profile gets nothing
-                    // at all.
+                    // it is a working search index.
+                    runLog.Step("enrichment.skipped", ex.Message);
                     _logger.LogWarning(
                         "Concierge: enrichment was skipped — {Reason} The index will still build, but plot "
                         + "and mood searches will be markedly worse until it runs.",
@@ -134,12 +213,13 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             }
             else if (!config.EnableEnrichment)
             {
+                runLog.Step("enrichment.disabled", "Enrichment is off; the index holds only library metadata");
                 _logger.LogInformation(
                     "Concierge: enrichment is off, so the index holds only what the library already knew. "
                     + "Plot and mood searches will be markedly worse.");
             }
 
-            progress?.Report(60);
+            progress.Report(60);
 
             // 4. Attach enrichment and lay out the vector rows.
             var byItem = keep.ToDictionary(e => e.ItemId);
@@ -150,8 +230,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             var (rows, texts) = BuildRows(enriched, config.MaxAsksPerItem);
 
             // 5. Reuse every vector whose text is unchanged. This is what makes a
-            //    nightly rebuild cost approximately nothing: a library where nothing
-            //    changed embeds nothing at all.
+            //    nightly rebuild cost approximately nothing.
             var reusable = await LoadReusableVectorsAsync(embeddingProfile, cancellationToken).ConfigureAwait(false);
             var vectors = new float[texts.Count][];
             var toEmbed = new List<int>();
@@ -168,10 +247,20 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 }
             }
 
-            await EmbedAsync(embedder, texts, toEmbed, vectors, config, progress, cancellationToken)
-                .ConfigureAwait(false);
+            runLog.Step(
+                "embedding.planned",
+                $"{toEmbed.Count} row(s) to embed, {texts.Count - toEmbed.Count} reused",
+                new Dictionary<string, object?>
+                {
+                    ["rows"] = rows.Count,
+                    ["embedded"] = toEmbed.Count,
+                    ["reused"] = texts.Count - toEmbed.Count,
+                    ["model"] = embedder.ModelId,
+                });
 
-            cost += CallCost.ForEmbedding(embeddingProfile, EstimateTokens(texts, toEmbed));
+            cost += await EmbedAsync(
+                    embedder, embeddingProfile, texts, toEmbed, vectors, config, runLog, progress, cancellationToken)
+                .ConfigureAwait(false);
 
             // 6. Write it.
             var previous = await _store.LoadStateAsync(cancellationToken).ConfigureAwait(false);
@@ -189,9 +278,25 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             await _store.SaveEnrichmentAsync(keep, cancellationToken).ConfigureAwait(false);
             await _store.SaveAsync(state, enriched, rows, vectors, cancellationToken).ConfigureAwait(false);
 
-            progress?.Report(100);
+            runLog.Step(
+                "index.written",
+                $"Generation {state.Generation}: {state.ItemCount} item(s), {state.RowCount} row(s), "
+                + $"{state.EnrichedCount} enriched",
+                new Dictionary<string, object?>
+                {
+                    ["generation"] = state.Generation,
+                    ["items"] = state.ItemCount,
+                    ["rows"] = state.RowCount,
+                    ["enriched"] = state.EnrichedCount,
+                    ["dimensions"] = state.Dimensions,
+                    ["embeddingModel"] = state.EmbeddingModel,
+                    ["costUsd"] = cost,
+                });
+
+            progress.Report(100);
 
             return new IndexBuildResult(
+                runLog.RunId,
                 enriched.Count,
                 rows.Count,
                 toEmbed.Count,
@@ -203,11 +308,6 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
         /// <summary>
         /// Lays out one vector row per item document plus one per generated phrasing.
         /// </summary>
-        /// <remarks>
-        /// The phrasings are the point: a user's fuzzy sentence gets compared against
-        /// other fuzzy sentences about the same film rather than against the overview.
-        /// Retrieval collapses an item's rows back to its best one before fusion.
-        /// </remarks>
         private static (List<VectorRowSource> Rows, List<string> Texts) BuildRows(
             IReadOnlyList<ItemDocument> documents,
             int maxAsks)
@@ -241,23 +341,26 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             return (rows, texts);
         }
 
-        private async Task EmbedAsync(
+        private async Task<decimal> EmbedAsync(
             IEmbeddingProvider embedder,
+            EmbeddingProfile profile,
             IReadOnlyList<string> texts,
             IReadOnlyList<int> indexes,
             float[][] vectors,
             PluginConfiguration config,
-            IProgress<double>? progress,
+            IIndexRunLog runLog,
+            IProgress<double> progress,
             CancellationToken cancellationToken)
         {
             if (indexes.Count == 0)
             {
                 _logger.LogInformation("Concierge: nothing changed, so no embedding was needed");
-                return;
+                return 0m;
             }
 
             var batchSize = Math.Max(1, config.EmbeddingBatchSize);
             var batches = indexes.Chunk(batchSize).ToList();
+            decimal cost = 0;
 
             _logger.LogInformation(
                 "Concierge: embedding {Count} new row(s) in {Batches} batch(es) with {Model}",
@@ -271,30 +374,40 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
                 var batch = batches[b];
                 var input = batch.Select(i => texts[i]).ToList();
+                var stopwatch = Stopwatch.StartNew();
 
                 var result = await embedder
                     .EmbedAsync(input, EmbeddingPurpose.Document, cancellationToken)
                     .ConfigureAwait(false);
+
+                stopwatch.Stop();
 
                 for (var i = 0; i < batch.Length; i++)
                 {
                     vectors[batch[i]] = result.Vectors[i];
                 }
 
-                progress?.Report(60 + ((b + 1) / (double)batches.Count * 35));
+                var batchCost = CallCost.ForEmbedding(profile, result.InputTokens);
+                cost += batchCost;
+
+                runLog.EmbeddingCall(
+                    b + 1,
+                    batch.Length,
+                    stopwatch.Elapsed,
+                    result.InputTokens,
+                    batchCost,
+                    embedder.ModelId,
+                    profile.Provider.ToString());
+
+                progress.Report(60 + ((b + 1) / (double)batches.Count * 35));
             }
+
+            return cost;
         }
 
         /// <summary>
         /// The previous index's vectors, keyed by the text they were made from.
         /// </summary>
-        /// <remarks>
-        /// Keyed by text rather than by item, so an unchanged phrasing survives its
-        /// item being re-enriched and an unchanged item survives its phrasings
-        /// changing. Only ever consulted when the stored index is still valid for the
-        /// current embedding profile — reusing a vector across a model change is
-        /// exactly the mixing hard rule 9 forbids.
-        /// </remarks>
         private async Task<Dictionary<string, float[]>> LoadReusableVectorsAsync(
             EmbeddingProfile profile,
             CancellationToken cancellationToken)
@@ -303,8 +416,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
             // LoadAsync refuses a stored index whose state disagrees with this
             // profile, so anything reaching past here was written by the model in
-            // force now. That refusal is the only thing standing between a changed
-            // embedding model and an index quietly holding two incomparable spaces.
+            // force now.
             var existing = await _store.LoadAsync(profile, cancellationToken).ConfigureAwait(false);
             if (existing is null)
             {
@@ -350,25 +462,6 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 _logger.LogDebug(ex, "Concierge: could not read people for {Item}", item.Name);
                 return [];
             }
-        }
-
-        /// <summary>
-        /// A rough token count for the cost line, at the usual four-characters-a-token.
-        /// </summary>
-        /// <remarks>
-        /// An estimate, and labelled as one: most embedding endpoints report usage and
-        /// the provider prefers the reported figure, but the Google batch endpoint
-        /// reports none at all.
-        /// </remarks>
-        private static long EstimateTokens(IReadOnlyList<string> texts, IReadOnlyList<int> indexes)
-        {
-            long characters = 0;
-            foreach (var index in indexes)
-            {
-                characters += texts[index].Length;
-            }
-
-            return characters / 4;
         }
     }
 }

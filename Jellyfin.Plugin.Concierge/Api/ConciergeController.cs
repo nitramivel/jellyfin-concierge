@@ -55,18 +55,21 @@ namespace Jellyfin.Plugin.Concierge.Api
     {
         private readonly SearchService _search;
         private readonly IIndexStore _store;
-        private readonly IRunLogStore _runLog;
+        private readonly IQueryLogStore _queryLog;
+        private readonly IIndexRunLogStore _indexRuns;
         private readonly ILogger<ConciergeController> _logger;
 
         public ConciergeController(
             SearchService search,
             IIndexStore store,
-            IRunLogStore runLog,
+            IQueryLogStore queryLog,
+            IIndexRunLogStore indexRuns,
             ILogger<ConciergeController> logger)
         {
             _search = search;
             _store = store;
-            _runLog = runLog;
+            _queryLog = queryLog;
+            _indexRuns = indexRuns;
             _logger = logger;
         }
 
@@ -161,11 +164,55 @@ namespace Jellyfin.Plugin.Concierge.Api
             [FromQuery] int limit,
             CancellationToken cancellationToken)
         {
-            var records = await _runLog
+            var records = await _queryLog
                 .RecentAsync(limit <= 0 ? 50 : limit, cancellationToken)
                 .ConfigureAwait(false);
 
             return Ok(records);
+        }
+
+        /// <summary>
+        /// Lists index builds, newest first, with what each cost.
+        /// </summary>
+        /// <param name="limit">How many to return.</param>
+        /// <response code="200">The runs.</response>
+        /// <returns>The runs.</returns>
+        [HttpGet("Index/Runs")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<IReadOnlyList<IndexRunSummary>> IndexRuns([FromQuery] int limit)
+            => Ok(_indexRuns.List(limit <= 0 ? 25 : limit));
+
+        /// <summary>
+        /// The build in flight, or null when nothing is running.
+        /// </summary>
+        /// <remarks>
+        /// Read from memory so the settings page can poll it to move a progress bar
+        /// without pulling a whole run document off disk each time.
+        /// </remarks>
+        /// <response code="200">The current run, or null.</response>
+        /// <returns>The current run.</returns>
+        [HttpGet("Index/Current")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<IndexRunSummary?> CurrentIndexRun() => Ok(_indexRuns.Current());
+
+        /// <summary>
+        /// One build's whole record: every step, every model call with its tokens and
+        /// cost, and every item that came out unenriched with the reason.
+        /// </summary>
+        /// <param name="runId">The run.</param>
+        /// <response code="200">The run document.</response>
+        /// <response code="404">No such run.</response>
+        /// <returns>The run document as stored.</returns>
+        [HttpGet("Index/Runs/{runId}")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult IndexRunDetail([FromRoute] Guid runId)
+        {
+            var raw = _indexRuns.ReadRaw(runId);
+            return raw is null ? NotFound() : Content(raw, "application/json");
         }
 
         /// <summary>
