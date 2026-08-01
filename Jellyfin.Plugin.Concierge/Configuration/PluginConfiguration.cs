@@ -307,5 +307,24 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// line does.
         /// </remarks>
         public bool EnableLyricSearch { get; set; } = true;
+
+        // ── The query log ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Gets or sets whether the text of each search is stored alongside its cost.
+        /// </summary>
+        /// <remarks>
+        /// On by default, because a search you cannot see is a search you cannot
+        /// debug — every diagnosis in this plugin's history started by reading what
+        /// somebody actually typed.
+        /// <para>
+        /// <b>It is also a two-year record of what everyone in the house searched
+        /// for</b>, which is a different thing from a cost log and deserves a separate
+        /// decision. Turning this off keeps every number — timings, tokens, cost, the
+        /// model used, which user — and drops only the words. Usage breakdowns are
+        /// completely unaffected.
+        /// </para>
+        /// </remarks>
+        public bool LogQueryText { get; set; } = true;
     }
 }

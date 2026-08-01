@@ -157,7 +157,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             if (index is null)
             {
                 return await FinishAsync(
-                    runId, started, query, userId, stopwatch,
+                    config, runId, started, query, userId, stopwatch,
                     new SearchResponse(
                         decision.Route.ToString(), decision.Reason, [], 0, 0m,
                         quotes.Count > 0
@@ -176,7 +176,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             {
                 stopwatch.Stop();
                 var hit = cached with { DurationMs = (int)stopwatch.ElapsedMilliseconds, Cached = true, CostUsd = 0m };
-                await RecordAsync(runId, started, query, userId, hit, [], cancellationToken).ConfigureAwait(false);
+                await RecordAsync(config, runId, started, query, userId, hit, [], cancellationToken).ConfigureAwait(false);
                 return hit;
             }
 
@@ -338,7 +338,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             // Only worth remembering an answer that cost something or took real work.
             _cache.Set(cacheKey, response);
 
-            await RecordAsync(runId, started, query, userId, response, calls, cancellationToken)
+            await RecordAsync(config, runId, started, query, userId, response, calls, cancellationToken)
                 .ConfigureAwait(false);
 
             return response;
@@ -546,6 +546,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             => userId?.ToString("N", CultureInfo.InvariantCulture);
 
         private async Task<SearchResponse> FinishAsync(
+            PluginConfiguration config,
             string runId,
             DateTime started,
             string query,
@@ -557,7 +558,7 @@ namespace Jellyfin.Plugin.Concierge.Services
         {
             stopwatch.Stop();
             var finished = response with { DurationMs = (int)stopwatch.ElapsedMilliseconds };
-            await RecordAsync(runId, started, query, userId, finished, calls, cancellationToken)
+            await RecordAsync(config, runId, started, query, userId, finished, calls, cancellationToken)
                 .ConfigureAwait(false);
             return finished;
         }
@@ -601,6 +602,7 @@ namespace Jellyfin.Plugin.Concierge.Services
         }
 
         private Task RecordAsync(
+            PluginConfiguration config,
             string runId,
             DateTime started,
             string query,
@@ -612,7 +614,10 @@ namespace Jellyfin.Plugin.Concierge.Services
             var record = new QueryRunRecord(
                 runId,
                 started,
-                query,
+
+                // Dropping the words keeps every number a breakdown needs and removes
+                // the part that is a record of what people searched for.
+                config.LogQueryText ? query : string.Empty,
                 UserKey(userId),
                 response.Route,
                 calls,

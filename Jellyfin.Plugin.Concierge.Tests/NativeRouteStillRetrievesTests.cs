@@ -88,6 +88,10 @@ namespace Jellyfin.Plugin.Concierge.Tests
 
             public Task<IReadOnlyList<QueryRunRecord>> RecentAsync(int count, CancellationToken ct)
                 => Task.FromResult<IReadOnlyList<QueryRunRecord>>(Records);
+
+            public Task<IReadOnlyList<QueryRunRecord>> SinceAsync(DateTime fromUtc, CancellationToken ct)
+                => Task.FromResult<IReadOnlyList<QueryRunRecord>>(
+                    Records.Where(r => r.StartedUtc >= fromUtc).ToList());
         }
 
         /// <summary>Throws if used, so a Native query reaching a model fails loudly.</summary>

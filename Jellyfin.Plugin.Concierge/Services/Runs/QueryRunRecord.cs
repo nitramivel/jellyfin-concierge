@@ -100,6 +100,13 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
     /// <param name="TopHits">
     /// The first few titles returned, so a search can be judged after the fact.
     /// </param>
+    /// <param name="Cached">
+    /// Whether the answer came from the cache. Recorded because a breakdown that
+    /// counted cache hits as ordinary searches would understate what the cache is
+    /// saving and overstate what a search costs.
+    /// </param>
+    /// <param name="Reranked">Whether a model ordered the results.</param>
+    /// <param name="QuoteHits">How many lines of dialogue matched.</param>
     /// <remarks>
     /// <paramref name="TopHits"/> exists because a result count does not say whether
     /// the answer was any good. "10 results in 311ms" reads identically for a perfect
@@ -117,7 +124,10 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         int DurationMs,
         string? Degraded = null,
         string? Error = null,
-        IReadOnlyList<string>? TopHits = null)
+        IReadOnlyList<string>? TopHits = null,
+        bool Cached = false,
+        bool Reranked = false,
+        int QuoteHits = 0)
     {
         /// <summary>
         /// Gets what the query cost, summed from its calls.

@@ -75,6 +75,29 @@
                     <div id="ConciergeTryResults" style="margin-top:1em;"></div>
                 </div>
 
+                <!-- Usage -->
+                <div class="conciergeSection">
+                    <h3>Usage and cost</h3>
+                    <div class="conciergeSectionNote">
+                        Every search is logged with what it cost, appended to one file per month and kept for two
+                        years. Totals are summed call by call, never estimated from token counts.
+                    </div>
+
+                    <div class="conciergeProfileBar">
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="ConciergeUsageMonths">Period</label>
+                            <select is="emby-select" id="ConciergeUsageMonths" class="emby-select-withcolor emby-select">
+                                <option value="1">This month</option>
+                                <option value="3" selected>Last 3 months</option>
+                                <option value="12">Last 12 months</option>
+                                <option value="24">Everything kept</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="ConciergeUsage" style="margin-top:1em;">Loading&hellip;</div>
+                </div>
+
                 <!-- Index builds -->
                 <div class="conciergeSection">
                     <h3>Index builds</h3>
@@ -453,6 +476,19 @@
                         <label class="inputLabel inputLabelUnfocused" for="RerankShortlistSize">Candidates sent to the re-ranker</label>
                         <input id="RerankShortlistSize" type="number" step="5" min="5" max="100" class="emby-input" />
                         <div class="fieldDescription">The biggest single lever on what a paid search costs.</div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="LogQueryText" />
+                            <span>Record the text of each search</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            On by default, because a search you cannot see is a search you cannot debug. It is also a
+                            two-year record of what everyone in the house searched for, which deserves its own
+                            decision. Turning it off keeps every number &mdash; timing, tokens, cost, model, user
+                            &mdash; and drops only the words. Usage breakdowns are unaffected.
+                        </div>
                     </div>
 
                     <div class="inputContainer">
@@ -844,6 +880,7 @@
                 page.querySelector('#RerankShortlistSize').value = config.RerankShortlistSize || 40;
                 page.querySelector('#QueryCacheSize').value =
                     config.QueryCacheSize === undefined ? 200 : config.QueryCacheSize;
+                page.querySelector('#LogQueryText').checked = config.LogQueryText !== false;
 
                 page.querySelector('#EnableQuoteSearch').checked = config.EnableQuoteSearch !== false;
                 page.querySelector('#QuoteIncludeEpisodes').checked = !!config.QuoteIncludeEpisodes;
@@ -888,6 +925,7 @@
                         parseInt(page.querySelector('#PaidQueriesPerUserPerHour').value, 10) || 0;
                     config.RerankShortlistSize = parseInt(page.querySelector('#RerankShortlistSize').value, 10) || 40;
                     config.QueryCacheSize = parseInt(page.querySelector('#QueryCacheSize').value, 10) || 200;
+                    config.LogQueryText = page.querySelector('#LogQueryText').checked;
 
                     config.EnableQuoteSearch = page.querySelector('#EnableQuoteSearch').checked;
                     config.QuoteIncludeEpisodes = page.querySelector('#QuoteIncludeEpisodes').checked;
@@ -1381,6 +1419,81 @@
                 }
             }
 
+            function usageTable(title, rows, unit) {
+                if (!rows || !rows.length) {
+                    return '';
+                }
+
+                var html = '<div style="margin-top:1em;"><strong>' + escapeHtml(title) + '</strong>'
+                    + '<table style="width:100%;border-collapse:collapse;margin-top:0.3em;">';
+
+                rows.slice(0, 12).forEach(function (r) {
+                    html += '<tr style="border-bottom:1px solid rgba(127,127,127,0.15);">'
+                        + '<td style="padding:0.25em 0;">' + escapeHtml(r.Key) + '</td>'
+                        + '<td style="padding:0.25em 0;text-align:right;opacity:0.75;">'
+                        + escapeHtml(String(r.Queries)) + ' ' + escapeHtml(unit) + '</td>'
+                        + '<td style="padding:0.25em 0;text-align:right;font-variant-numeric:tabular-nums;">$'
+                        + escapeHtml((r.CostUsd || 0).toFixed(4)) + '</td></tr>';
+                });
+
+                return html + '</table></div>';
+            }
+
+            function loadUsage() {
+                var months = page.querySelector('#ConciergeUsageMonths').value;
+                var target = page.querySelector('#ConciergeUsage');
+
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Usage', { months: months }),
+                    dataType: 'json'
+                }).then(function (u) {
+                    var t = u.Totals;
+
+                    if (!t || !t.Queries) {
+                        target.innerHTML = 'No searches recorded for this period yet.';
+                        return;
+                    }
+
+                    var freeShare = Math.round((t.FreeShare || 0) * 100);
+
+                    var html = '<div class="conciergeEditor">'
+                        + '<div><strong>' + escapeHtml(t.Queries.toLocaleString()) + ' searches</strong> · '
+                        + '<strong>$' + escapeHtml((t.CostUsd || 0).toFixed(4)) + '</strong> total · '
+                        + '$' + escapeHtml((t.CostPerQueryUsd || 0).toFixed(5)) + ' each</div>'
+                        + '<div class="conciergeRunMeta">'
+                        + escapeHtml(String(freeShare)) + '% answered for nothing ('
+                        + escapeHtml(String(t.Free)) + ' free, ' + escapeHtml(String(t.Cached)) + ' cached, '
+                        + escapeHtml(String(t.Paid)) + ' paid) · '
+                        + escapeHtml(t.InputTokens.toLocaleString()) + ' in / '
+                        + escapeHtml(t.OutputTokens.toLocaleString()) + ' out tokens · '
+                        + 'mean ' + escapeHtml(String(t.MeanMs)) + 'ms, p95 '
+                        + escapeHtml(String(t.P95Ms)) + 'ms</div>';
+
+                    // The router is the biggest lever on the bill, so its report card
+                    // gets called out rather than buried in a table.
+                    if (freeShare < 40 && t.Queries > 20) {
+                        html += '<div class="conciergeSectionNote conciergeBad" style="margin:0.6em 0 0 0;">'
+                            + 'Only ' + escapeHtml(String(freeShare)) + '% of searches avoided a model. '
+                            + 'The router moves this bill more than the model choice does.</div>';
+                    }
+
+                    html += '</div>';
+
+                    html += usageTable('By month', u.ByMonth, 'searches');
+                    html += usageTable('By pass', u.ByPass, 'searches');
+                    html += usageTable('By model', u.ByModel, 'searches');
+                    html += usageTable('By route', u.ByRoute, 'searches');
+                    html += usageTable('By user', u.ByUser, 'searches');
+
+                    target.innerHTML = html;
+                }, function () {
+                    target.innerHTML = 'Could not read the usage breakdown.';
+                });
+            }
+
+            page.querySelector('#ConciergeUsageMonths').addEventListener('change', loadUsage);
+
             function loadQuoteCoverage() {
                 var target = page.querySelector('#ConciergeQuoteCoverage');
 
@@ -1434,6 +1547,7 @@
 
             page.querySelector('#ConciergeRefreshRuns').addEventListener('click', function () {
                 loadQuoteCoverage();
+                loadUsage();
                 loadRuns();
                 pollCurrent();
                 startPolling();
@@ -1442,6 +1556,7 @@
             page.addEventListener('pageshow', function () {
                 refreshStatus();
                 loadQuoteCoverage();
+                loadUsage();
                 loadRuns();
                 pollCurrent();
                 startPolling();

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,5 +35,18 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The recorded queries.</returns>
         Task<IReadOnlyList<QueryRunRecord>> RecentAsync(int count, CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Reads every search recorded since a point in time.
+        /// </summary>
+        /// <remarks>
+        /// What a usage breakdown reads. Separate from <see cref="RecentAsync"/>
+        /// because the questions are different: one wants the last few whatever their
+        /// age, the other wants a whole period however many that is.
+        /// </remarks>
+        /// <param name="fromUtc">The earliest search to include.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The searches, oldest first.</returns>
+        Task<IReadOnlyList<QueryRunRecord>> SinceAsync(DateTime fromUtc, CancellationToken cancellationToken);
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Concierge.Core.Usage;
 using Jellyfin.Plugin.Concierge.Services;
 using Jellyfin.Plugin.Concierge.Services.Indexing;
 using Jellyfin.Plugin.Concierge.Services.Quotes;
@@ -176,6 +177,34 @@ namespace Jellyfin.Plugin.Concierge.Api
         }
 
         /// <summary>
+        /// A usage and cost breakdown over recent months.
+        /// </summary>
+        /// <remarks>
+        /// Reads the query log, which is append-only and month-partitioned, so asking
+        /// for one month reads one file. Every total is summed from per-call costs
+        /// rather than derived from aggregate tokens at a single rate — a report is
+        /// precisely where a wrong number gets believed and acted on.
+        /// </remarks>
+        /// <param name="months">How many months back to include; defaults to 3.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <response code="200">The breakdown.</response>
+        /// <returns>The breakdown.</returns>
+        [HttpGet("Usage")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<UsageReport>> Usage(
+            [FromQuery] int months,
+            CancellationToken cancellationToken)
+        {
+            var back = Math.Clamp(months <= 0 ? 3 : months, 1, QueryLogStore.MonthsRetained);
+            var from = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc)
+                .AddMonths(-(back - 1));
+
+            var records = await _queryLog.SinceAsync(from, cancellationToken).ConfigureAwait(false);
+            return Ok(UsageRollup.Build(records));
+        }
+
+        /// <summary>
         /// Lists index builds, newest first, with what each cost.
         /// </summary>
         /// <param name="limit">How many to return.</param>
@@ -296,6 +325,7 @@ namespace Jellyfin.Plugin.Concierge.Api
                 SubtitleLanguage = config.SubtitleLanguage,
                 QuoteWindowWords = config.QuoteWindowWords,
                 EnableLyricSearch = config.EnableLyricSearch,
+                LogQueryText = config.LogQueryText,
             };
         }
     }

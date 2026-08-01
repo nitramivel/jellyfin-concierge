@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.9.0.0",
+        "changelog": "Replaces the 200-entry rolling query log with append-only monthly JSONL files kept for two years, so usage can actually be broken down; existing records are imported automatically. Adds a usage and cost report \u2014 totals, router free-share, and breakdowns by month, pass, model, route and user \u2014 summed call by call rather than estimated from token counts. Adds a setting to keep every number while dropping the search text.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.9.0.0/concierge_0.9.0.0.zip",
+        "checksum": "f1377318b9141bfa4e28b15af124fc7d",
+        "timestamp": "2026-08-01T09:46:53Z"
+      },
+      {
         "version": "0.8.0.0",
         "changelog": "Indexes song lyrics alongside film dialogue, so a remembered line finds the track and the second it is sung. Fixes michael scott returning Scott Pilgrim by applying the plan's dominant-winner rule: a Native route only stands when keyword retrieval produced a clear winner. Cuts paid search latency by asking the re-ranker for its best twelve rather than all forty, capping explanations, and trimming the shortlist.",
         "targetAbi": "10.11.11.0",
