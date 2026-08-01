@@ -30,6 +30,52 @@ namespace Jellyfin.Plugin.Concierge.Tests
             Assert.Contains("concierge-results", Script, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// The upgrade path, which silently did nothing once already.
+        /// </summary>
+        /// <remarks>
+        /// 0.10.0.0 installed and loaded on the server while the browser went on
+        /// running 1.0.0.0's script, because the URL was identical between the two
+        /// and the response carried no cache headers. The version had to be in the
+        /// URL for the new file to ever be asked for.
+        /// </remarks>
+        [Fact]
+        public void TheScriptUrlChangesWhenTheScriptDoes()
+        {
+            var url = ScriptInjector.VersionedScriptPath;
+
+            Assert.StartsWith(ScriptInjector.ScriptPath + "?v=", url, StringComparison.Ordinal);
+            Assert.DoesNotContain("?v=0", url, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ThePatchedPageAsksForThatVersionedUrl()
+        {
+            var patched = ScriptInjector.Patch("<html><body><div></div></body></html>");
+
+            Assert.NotNull(patched);
+            Assert.Contains(
+                "src=\"" + ScriptInjector.VersionedScriptPath + "\"",
+                patched,
+                StringComparison.Ordinal);
+            Assert.EndsWith("</body></html>", patched, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void APageAlreadyCarryingTheTagIsLeftExactlyAsItIs()
+        {
+            var once = ScriptInjector.Patch("<html><body></body></html>");
+
+            Assert.NotNull(once);
+            Assert.Null(ScriptInjector.Patch(once));
+        }
+
+        [Fact]
+        public void AnythingThatIsNotTheClientShellIsLeftAlone()
+        {
+            Assert.Null(ScriptInjector.Patch("{\"not\":\"html\"}"));
+        }
+
         [Fact]
         public void EveryFunctionItCallsIsOneItDefines()
         {

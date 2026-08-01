@@ -33,6 +33,25 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
 
         private const string Marker = "id=\"concierge-client\"";
 
+        /// <summary>
+        /// The script's content hash, used as both the cache-busting token and the
+        /// entity tag.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is the fix for an upgrade that silently did nothing.</b> The tag
+        /// pointed at a URL that never changed from one release to the next, and the
+        /// response carried no cache headers at all — so a browser that had fetched
+        /// the script once kept serving that copy, and a new version of the plugin
+        /// installed and loaded while the page went on running the old client. It
+        /// looked exactly like the change had not been made.
+        /// <para>
+        /// Hashing the content rather than stamping the plugin version means the URL
+        /// changes when and only when the script does, so an unchanged script still
+        /// hits cache across upgrades and a changed one cannot be served stale.
+        /// </para>
+        /// </remarks>
+        private static readonly string Fingerprint = Fingerprinted(ReadScript());
+
         private readonly ILogger<ScriptInjector> _logger;
 
         public ScriptInjector(ILogger<ScriptInjector> logger)
@@ -116,12 +135,68 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
                 || path.EndsWith("/index.html", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// The versioned URL the page should ask for.
+        /// </summary>
+        public static string VersionedScriptPath => ScriptPath + "?v=" + Fingerprint;
+
+        /// <summary>
+        /// Inserts the script tag into a document.
+        /// </summary>
+        /// <param name="body">The document as served.</param>
+        /// <returns>The patched document, or null to leave it exactly as it is.</returns>
+        /// <remarks>
+        /// Separated from the middleware so the decision can be tested without a
+        /// server. Only a document that looks like the client's shell and does not
+        /// already carry the tag is touched — a reload must never stack tags up.
+        /// </remarks>
+        public static string? Patch(string body)
+        {
+            var close = body.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+
+            if (close < 0 || body.Contains(Marker, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var tag = "<script id=\"concierge-client\" src=\"" + VersionedScriptPath
+                + "\" defer></script>";
+
+            return body[..close] + tag + body[close..];
+        }
+
+        private static string Fingerprinted(string script)
+        {
+            if (script.Length == 0)
+            {
+                return "0";
+            }
+
+            var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(script));
+
+            return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
+        }
+
         private async Task ServeScriptAsync(HttpContext context)
         {
             var script = ReadScript();
             if (script.Length == 0)
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+
+            var tag = "\"" + Fingerprint + "\"";
+
+            // "no-cache" means revalidate, not "never store". Paired with the entity
+            // tag it costs one conditional request per page load and answers 304 for
+            // the rest, which is the cheap half of never serving a stale client.
+            context.Response.Headers.CacheControl = "no-cache";
+            context.Response.Headers.ETag = tag;
+
+            if (context.Request.Headers.IfNoneMatch.ToString().Contains(tag, StringComparison.Ordinal))
+            {
+                context.Response.StatusCode = StatusCodes.Status304NotModified;
                 return;
             }
 
@@ -137,12 +212,25 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
         /// Every failure path here restores the original response untouched. A plugin
         /// that could break the page it patches would take the whole web client down
         /// with it, and no search feature is worth that risk.
+        /// <para>
+        /// <b>The conditional request is handled here rather than upstream.</b>
+        /// Jellyfin serves the index with its own entity tag, computed from the file
+        /// on disk — which never changes when the plugin does. Left alone, a browser
+        /// revalidates, gets a 304, and goes on using its cached copy of the patched
+        /// page, complete with the script URL from whichever version it first saw.
+        /// So the validators are stripped from the request to force a full body, and
+        /// the response carries an entity tag over the patched document instead.
+        /// </para>
         /// </remarks>
         private async Task InjectAsync(HttpContext context, Func<Task> next)
         {
             var original = context.Response.Body;
             using var buffer = new MemoryStream();
             context.Response.Body = buffer;
+
+            var wanted = context.Request.Headers.IfNoneMatch.ToString();
+            context.Request.Headers.Remove("If-None-Match");
+            context.Request.Headers.Remove("If-Modified-Since");
 
             try
             {
@@ -151,10 +239,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
                 buffer.Position = 0;
                 var body = await new StreamReader(buffer).ReadToEndAsync().ConfigureAwait(false);
 
-                // Only touch a document that looks like the client's shell and does
-                // not already carry our tag — a reload must not stack tags up.
-                var close = body.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
-                if (close < 0 || body.Contains(Marker, StringComparison.Ordinal))
+                var patched = Patch(body);
+
+                if (patched is null)
                 {
                     context.Response.Body = original;
                     buffer.Position = 0;
@@ -162,11 +249,21 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
                     return;
                 }
 
-                var tag = "<script id=\"concierge-client\" src=\"" + ScriptPath + "\" defer></script>";
-                var patched = body[..close] + tag + body[close..];
                 var bytes = Encoding.UTF8.GetBytes(patched);
+                var etag = "\"" + Fingerprinted(patched) + "\"";
 
                 context.Response.Body = original;
+                context.Response.Headers.LastModified = default;
+                context.Response.Headers.CacheControl = "no-cache";
+                context.Response.Headers.ETag = etag;
+
+                if (wanted.Contains(etag, StringComparison.Ordinal))
+                {
+                    context.Response.StatusCode = StatusCodes.Status304NotModified;
+                    context.Response.ContentLength = null;
+                    return;
+                }
+
                 context.Response.ContentLength = bytes.Length;
                 await original.WriteAsync(bytes).ConfigureAwait(false);
             }
