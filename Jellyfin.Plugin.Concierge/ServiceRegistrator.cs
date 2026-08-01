@@ -4,6 +4,7 @@ using Jellyfin.Plugin.Concierge.Services.Embeddings;
 using Jellyfin.Plugin.Concierge.Services.Indexing;
 using Jellyfin.Plugin.Concierge.Services.Library;
 using Jellyfin.Plugin.Concierge.Services.Llm;
+using Jellyfin.Plugin.Concierge.Services.Quotes;
 using Jellyfin.Plugin.Concierge.Services.Runs;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
@@ -47,7 +48,15 @@ namespace Jellyfin.Plugin.Concierge
             // inside a latency budget measured in a couple of seconds.
             serviceCollection.AddSingleton<SearchService>();
 
+            serviceCollection.AddSingleton<IQuoteStore, QuoteStore>();
+
+            // Singleton: it holds the phrase index, and rebuilding that means
+            // reading every extracted track off disk.
+            serviceCollection.AddSingleton<QuoteIndexProvider>();
+            serviceCollection.AddSingleton<SubtitleIndexer>();
+
             serviceCollection.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, IndexBuildTask>();
+            serviceCollection.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, SubtitleExtractTask>();
         }
     }
 }

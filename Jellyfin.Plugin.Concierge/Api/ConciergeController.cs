@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Concierge.Services;
 using Jellyfin.Plugin.Concierge.Services.Indexing;
+using Jellyfin.Plugin.Concierge.Services.Quotes;
 using Jellyfin.Plugin.Concierge.Services.Runs;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
@@ -57,6 +58,7 @@ namespace Jellyfin.Plugin.Concierge.Api
         private readonly IIndexStore _store;
         private readonly IQueryLogStore _queryLog;
         private readonly IIndexRunLogStore _indexRuns;
+        private readonly IQuoteStore _quotes;
         private readonly ILogger<ConciergeController> _logger;
 
         public ConciergeController(
@@ -64,12 +66,14 @@ namespace Jellyfin.Plugin.Concierge.Api
             IIndexStore store,
             IQueryLogStore queryLog,
             IIndexRunLogStore indexRuns,
+            IQuoteStore quotes,
             ILogger<ConciergeController> logger)
         {
             _search = search;
             _store = store;
             _queryLog = queryLog;
             _indexRuns = indexRuns;
+            _quotes = quotes;
             _logger = logger;
         }
 
@@ -237,6 +241,25 @@ namespace Jellyfin.Plugin.Concierge.Api
             return NoContent();
         }
 
+        /// <summary>
+        /// What can and cannot be found by its dialogue, and why.
+        /// </summary>
+        /// <remarks>
+        /// The gap is the point of this endpoint. Roughly a quarter of a typical
+        /// library has image-only subtitles, which cannot be read without OCR — but
+        /// downloading an external text track fixes each one for free, and that is
+        /// only actionable if the owner can see which items are affected.
+        /// </remarks>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <response code="200">The coverage report.</response>
+        /// <returns>The report.</returns>
+        [HttpGet("Quotes/Coverage")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<QuoteCoverage>>> QuoteCoverage(
+            CancellationToken cancellationToken)
+            => Ok(await _quotes.LoadCoverageAsync(cancellationToken).ConfigureAwait(false));
+
         private static Configuration.PluginConfiguration CloneWithLimit(
             Configuration.PluginConfiguration config,
             int limit)
@@ -261,6 +284,17 @@ namespace Jellyfin.Plugin.Concierge.Api
                 MaxAsksPerItem = config.MaxAsksPerItem,
                 EmbeddingBatchSize = config.EmbeddingBatchSize,
                 MaxResults = limit,
+                EnablePlanPass = config.EnablePlanPass,
+                EnableRerankPass = config.EnableRerankPass,
+                RerankShortlistSize = config.RerankShortlistSize,
+                MonthlyBudgetUsd = config.MonthlyBudgetUsd,
+                EnrichmentBudgetUsd = config.EnrichmentBudgetUsd,
+                PaidQueriesPerUserPerHour = config.PaidQueriesPerUserPerHour,
+                QueryCacheSize = config.QueryCacheSize,
+                EnableQuoteSearch = config.EnableQuoteSearch,
+                QuoteIncludeEpisodes = config.QuoteIncludeEpisodes,
+                SubtitleLanguage = config.SubtitleLanguage,
+                QuoteWindowWords = config.QuoteWindowWords,
             };
         }
     }

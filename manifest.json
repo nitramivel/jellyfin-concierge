@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.7.0.0",
+        "changelog": "Phase 3: quote search. Extracts the subtitles already inside your files and indexes the dialogue, so a quoted line finds the film and the moment it is said \u2014 no model, no embeddings, no money. Resumable extraction keyed on stream, path, size and modified time; forced tracks refused; SDH annotations stripped; misremembered quotes caught by trigram matching; and a coverage report naming what cannot be indexed and why.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.7.0.0/concierge_0.7.0.0.zip",
+        "checksum": "44d0c5a681fa6f51e6ca1112ed05f676",
+        "timestamp": "2026-08-01T09:22:43Z"
+      },
+      {
         "version": "0.6.0.0",
         "changelog": "Phase 2: a plan pass that reads constraints out of the sentence, filters that fail open rather than emptying the page, and a re-rank pass that orders the shortlist and explains each match. Adds a query cache, a persisted spend ledger, a monthly budget that degrades to free retrieval rather than erroring, per-user rate limiting and kill switches for both passes.",
         "targetAbi": "10.11.11.0",

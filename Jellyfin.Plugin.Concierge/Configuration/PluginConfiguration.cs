@@ -253,5 +253,45 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// money. Invalidated wholesale by an index rebuild.
         /// </remarks>
         public int QueryCacheSize { get; set; } = 200;
+
+        // ── Quote search ─────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Gets or sets whether dialogue is indexed and searchable.
+        /// </summary>
+        /// <remarks>
+        /// Costs no money at all — only CPU, once, to read subtitles out of the files.
+        /// It is also the only part of the plugin that works on films no model has
+        /// heard of, because the text comes from the file rather than from a model's
+        /// memory.
+        /// </remarks>
+        public bool EnableQuoteSearch { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets whether episodes have their dialogue indexed too.
+        /// </summary>
+        /// <remarks>
+        /// Off by default, and the reason is size rather than taste: films are roughly
+        /// 73,000 searchable windows and the full library is 850,000. Films finish in
+        /// minutes; everything is an overnight job. Turning this on is also what would
+        /// make a real full-text database the honest choice over the hand-rolled index.
+        /// </remarks>
+        public bool QuoteIncludeEpisodes { get; set; }
+
+        /// <summary>
+        /// Gets or sets the preferred subtitle language.
+        /// </summary>
+        public string SubtitleLanguage { get; set; } = "en";
+
+        /// <summary>
+        /// Gets or sets how many words a searchable dialogue window holds.
+        /// </summary>
+        /// <remarks>
+        /// Windows overlap by half, so any phrase shorter than half of this is
+        /// guaranteed to sit whole inside one of them. Changing it costs a reload but
+        /// no re-extraction — only cleaned lines are stored, and windows are rebuilt
+        /// from them.
+        /// </remarks>
+        public int QuoteWindowWords { get; set; } = 40;
     }
 }

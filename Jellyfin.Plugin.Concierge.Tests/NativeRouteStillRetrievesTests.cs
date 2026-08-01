@@ -12,6 +12,7 @@ using Jellyfin.Plugin.Concierge.Core.Retrieval;
 using Jellyfin.Plugin.Concierge.Services;
 using Jellyfin.Plugin.Concierge.Services.Embeddings;
 using Jellyfin.Plugin.Concierge.Services.Indexing;
+using Jellyfin.Plugin.Concierge.Services.Quotes;
 using Jellyfin.Plugin.Concierge.Services.Runs;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -124,7 +125,28 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 new ExplodingLlmFactory(),
                 log,
                 spend ?? new NullSpendStore(),
+                new QuoteIndexProvider(new EmptyQuoteStore(), NullLogger<QuoteIndexProvider>.Instance),
                 NullLogger<SearchService>.Instance);
+
+        /// <summary>No extracted dialogue, which is every install before the task runs.</summary>
+        private sealed class EmptyQuoteStore : IQuoteStore
+        {
+            public Task<QuoteTrack?> LoadAsync(Guid itemId, CancellationToken ct)
+                => Task.FromResult<QuoteTrack?>(null);
+
+            public Task SaveAsync(QuoteTrack track, CancellationToken ct) => Task.CompletedTask;
+
+            public Task<IReadOnlyList<QuoteTrack>> LoadAllAsync(CancellationToken ct)
+                => Task.FromResult<IReadOnlyList<QuoteTrack>>([]);
+
+            public Task SaveCoverageAsync(IReadOnlyList<QuoteCoverage> c, CancellationToken ct)
+                => Task.CompletedTask;
+
+            public Task<IReadOnlyList<QuoteCoverage>> LoadCoverageAsync(CancellationToken ct)
+                => Task.FromResult<IReadOnlyList<QuoteCoverage>>([]);
+
+            public Task DeleteAsync(CancellationToken ct) => Task.CompletedTask;
+        }
 
         private static ConciergeIndex BuildIndex()
         {

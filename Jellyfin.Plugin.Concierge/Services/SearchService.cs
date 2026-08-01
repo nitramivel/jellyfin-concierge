@@ -17,6 +17,7 @@ using Jellyfin.Plugin.Concierge.Services.Cache;
 using Jellyfin.Plugin.Concierge.Services.Embeddings;
 using Jellyfin.Plugin.Concierge.Services.Indexing;
 using Jellyfin.Plugin.Concierge.Services.Llm;
+using Jellyfin.Plugin.Concierge.Services.Quotes;
 using Jellyfin.Plugin.Concierge.Services.Runs;
 using Microsoft.Extensions.Logging;
 
@@ -55,6 +56,10 @@ namespace Jellyfin.Plugin.Concierge.Services
     /// <param name="Cached">Whether this came from the cache, and therefore cost nothing.</param>
     /// <param name="Reranked">Whether a model ordered these results.</param>
     /// <param name="Plan">What the plan pass read out of the query, when it ran.</param>
+    /// <param name="Quotes">
+    /// Lines of dialogue that matched, when the searcher quoted something. Free: no
+    /// model and no embedding, just the text out of their own subtitle files.
+    /// </param>
     public sealed record SearchResponse(
         string Route,
         string RouteReason,
@@ -64,7 +69,8 @@ namespace Jellyfin.Plugin.Concierge.Services
         string? Degraded,
         bool Cached = false,
         bool Reranked = false,
-        SearchPlan? Plan = null);
+        SearchPlan? Plan = null,
+        IReadOnlyList<QuoteResult>? Quotes = null);
 
     /// <summary>
     /// The end-to-end query. Every entry point calls this.
@@ -83,6 +89,7 @@ namespace Jellyfin.Plugin.Concierge.Services
         private readonly ILlmProviderFactory _llmFactory;
         private readonly IQueryLogStore _queryLog;
         private readonly ISpendStore _spend;
+        private readonly QuoteIndexProvider _quotes;
         private readonly ILogger<SearchService> _logger;
         private readonly SemaphoreSlim _loadGate = new(1, 1);
         private readonly QueryCache<SearchResponse> _cache = new();
@@ -95,6 +102,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             ILlmProviderFactory llmFactory,
             IQueryLogStore queryLog,
             ISpendStore spend,
+            QuoteIndexProvider quotes,
             ILogger<SearchService> logger)
         {
             _store = store;
@@ -102,6 +110,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             _llmFactory = llmFactory;
             _queryLog = queryLog;
             _spend = spend;
+            _quotes = quotes;
             _logger = logger;
         }
 
@@ -138,13 +147,23 @@ namespace Jellyfin.Plugin.Concierge.Services
             var index = await GetIndexAsync(config, cancellationToken).ConfigureAwait(false);
             var decision = QueryRouter.Decide(query, index?.Lexical);
 
+            // Dialogue search runs before anything paid, and costs nothing. A quoted
+            // query is somebody reciting a line, and if their own subtitle files hold
+            // it there is no reason to ask a model — or to care whether a model has
+            // ever heard of the film, which for anything released this year it has not.
+            var quotes = await SearchQuotesAsync(query, decision, config, cancellationToken)
+                .ConfigureAwait(false);
+
             if (index is null)
             {
                 return await FinishAsync(
                     runId, started, query, userId, stopwatch,
                     new SearchResponse(
                         decision.Route.ToString(), decision.Reason, [], 0, 0m,
-                        "no usable index — run the Concierge index task"),
+                        quotes.Count > 0
+                            ? null
+                            : "no usable index — run the Concierge index task",
+                        Quotes: quotes),
                     calls, cancellationToken).ConfigureAwait(false);
             }
 
@@ -285,7 +304,8 @@ namespace Jellyfin.Plugin.Concierge.Services
                 degraded,
                 Cached: false,
                 Reranked: reranked,
-                Plan: plan.Filters.IsEmpty ? null : plan);
+                Plan: plan.Filters.IsEmpty ? null : plan,
+                Quotes: quotes);
 
             if (cost > 0)
             {
@@ -299,6 +319,40 @@ namespace Jellyfin.Plugin.Concierge.Services
                 .ConfigureAwait(false);
 
             return response;
+        }
+
+        /// <summary>
+        /// Searches extracted dialogue when the query is a quotation.
+        /// </summary>
+        /// <remarks>
+        /// Only for quoted input. Running it on every query would surface a line of
+        /// dialogue whenever somebody typed a common word, which is noise — the
+        /// quotation marks are the searcher saying "these are the words that were
+        /// said", and that is exactly the signal this needs.
+        /// </remarks>
+        private async Task<IReadOnlyList<QuoteResult>> SearchQuotesAsync(
+            string query,
+            RouteDecision decision,
+            PluginConfiguration config,
+            CancellationToken cancellationToken)
+        {
+            if (!config.EnableQuoteSearch || !decision.Reason.Contains("quoted", StringComparison.Ordinal))
+            {
+                return [];
+            }
+
+            try
+            {
+                var phrase = query.Trim().Trim('"', '\u201c', '\u201d', '\'');
+                return await _quotes
+                    .SearchAsync(phrase, 10, config.QuoteWindowWords, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Concierge: dialogue search failed; falling back to the item index");
+                return [];
+            }
         }
 
         private async Task<SearchPlan> RunPlanAsync(

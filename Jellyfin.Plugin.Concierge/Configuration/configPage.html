@@ -462,6 +462,50 @@
                     </div>
                 </div>
 
+                <!-- Quote search -->
+                <div class="conciergeSection">
+                    <h3>Quote search</h3>
+                    <div class="conciergeSectionNote">
+                        Search for a line somebody says and get the film <em>and the minute</em>. Reads the subtitles
+                        already inside your files &mdash; <strong>no model, no embeddings, no money</strong>, only CPU
+                        the first time it reads each file. It is also the only part of Concierge that works on films
+                        no model has heard of, because the words come from the file rather than a model's memory.
+                        Run it from <em>Scheduled Tasks &rarr; Read dialogue for Concierge quote search</em>.
+                    </div>
+
+                    <div id="ConciergeQuoteCoverage" class="conciergeEditor">Checking&hellip;</div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:1em;">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnableQuoteSearch" />
+                            <span>Index dialogue</span>
+                        </label>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="QuoteIncludeEpisodes" />
+                            <span>Include episodes</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Off by default, and the reason is size rather than taste. Films are roughly 73,000
+                            searchable windows and finish in minutes; the whole library is 850,000 and is an
+                            overnight job. Turning this on is also the point at which a proper full-text database
+                            would beat the index built in here &mdash; ask before relying on it at that scale.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="SubtitleLanguage">Subtitle language</label>
+                        <input id="SubtitleLanguage" type="text" class="emby-input" placeholder="en" />
+                        <div class="fieldDescription">
+                            Forced tracks are never used &mdash; they carry only a few dozen foreign-language lines,
+                            so indexing one looks like success and produces a film nobody can find by anything said
+                            in it.
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Call shape -->
                 <div class="conciergeSection">
                     <h3>Call shape</h3>
@@ -788,6 +832,10 @@
                 page.querySelector('#QueryCacheSize').value =
                     config.QueryCacheSize === undefined ? 200 : config.QueryCacheSize;
 
+                page.querySelector('#EnableQuoteSearch').checked = config.EnableQuoteSearch !== false;
+                page.querySelector('#QuoteIncludeEpisodes').checked = !!config.QuoteIncludeEpisodes;
+                page.querySelector('#SubtitleLanguage').value = config.SubtitleLanguage || 'en';
+
                 renderAll(page);
                 renderProjection(page);
             }
@@ -826,6 +874,11 @@
                         parseInt(page.querySelector('#PaidQueriesPerUserPerHour').value, 10) || 0;
                     config.RerankShortlistSize = parseInt(page.querySelector('#RerankShortlistSize').value, 10) || 40;
                     config.QueryCacheSize = parseInt(page.querySelector('#QueryCacheSize').value, 10) || 200;
+
+                    config.EnableQuoteSearch = page.querySelector('#EnableQuoteSearch').checked;
+                    config.QuoteIncludeEpisodes = page.querySelector('#QuoteIncludeEpisodes').checked;
+                    config.SubtitleLanguage =
+                        page.querySelector('#SubtitleLanguage').value.trim() || 'en';
 
                     ApiClient.updatePluginConfiguration(pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
@@ -1313,7 +1366,59 @@
                 }
             }
 
+            function loadQuoteCoverage() {
+                var target = page.querySelector('#ConciergeQuoteCoverage');
+
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Quotes/Coverage'),
+                    dataType: 'json'
+                }).then(function (rows) {
+                    if (!rows || !rows.length) {
+                        target.innerHTML = 'No dialogue read yet. Run the extraction task to enable quote search.';
+                        return;
+                    }
+
+                    var indexed = rows.filter(function (r) { return r.Indexed; });
+                    var lines = indexed.reduce(function (n, r) { return n + (r.CueCount || 0); }, 0);
+                    var pct = Math.round(indexed.length / rows.length * 100);
+
+                    var html = '<strong>' + escapeHtml(String(indexed.length)) + ' of '
+                        + escapeHtml(String(rows.length)) + ' items searchable by dialogue ('
+                        + escapeHtml(String(pct)) + '%)</strong> — '
+                        + escapeHtml(lines.toLocaleString()) + ' lines indexed.';
+
+                    // Group what failed by cause, because the causes have different fixes
+                    // and one of them the owner can act on for free.
+                    var reasons = {};
+                    rows.filter(function (r) { return !r.Indexed; }).forEach(function (r) {
+                        reasons[r.Reason] = (reasons[r.Reason] || 0) + 1;
+                    });
+
+                    var keys = Object.keys(reasons);
+                    if (keys.length) {
+                        html += '<div class="conciergeSectionNote" style="margin:0.6em 0 0 0;">Not searchable:<ul>';
+                        keys.sort(function (a, b) { return reasons[b] - reasons[a]; }).forEach(function (k) {
+                            html += '<li>' + escapeHtml(String(reasons[k])) + ' × ' + escapeHtml(k) + '</li>';
+                        });
+                        html += '</ul>';
+
+                        if (keys.some(function (k) { return k.indexOf('image-only') >= 0; })) {
+                            html += 'Image-only subtitles cannot be read without OCR, but downloading an '
+                                + 'external English track for those items fixes each one for free.';
+                        }
+
+                        html += '</div>';
+                    }
+
+                    target.innerHTML = html;
+                }, function () {
+                    target.innerHTML = 'Could not read the dialogue coverage report.';
+                });
+            }
+
             page.querySelector('#ConciergeRefreshRuns').addEventListener('click', function () {
+                loadQuoteCoverage();
                 loadRuns();
                 pollCurrent();
                 startPolling();
@@ -1321,6 +1426,7 @@
 
             page.addEventListener('pageshow', function () {
                 refreshStatus();
+                loadQuoteCoverage();
                 loadRuns();
                 pollCurrent();
                 startPolling();
