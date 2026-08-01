@@ -227,7 +227,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 .Select(d => byItem.TryGetValue(d.ItemId, out var e) ? d with { Enrichment = e.Enrichment } : d)
                 .ToList();
 
-            var (rows, texts) = BuildRows(enriched, config.MaxAsksPerItem);
+            var (rows, texts) = VectorRowPlanner.Plan(enriched, config.MaxAsksPerItem);
 
             // 5. Reuse every vector whose text is unchanged. This is what makes a
             //    nightly rebuild cost approximately nothing.
@@ -303,42 +303,6 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 texts.Count - toEmbed.Count,
                 state.EnrichedCount,
                 cost);
-        }
-
-        /// <summary>
-        /// Lays out one vector row per item document plus one per generated phrasing.
-        /// </summary>
-        private static (List<VectorRowSource> Rows, List<string> Texts) BuildRows(
-            IReadOnlyList<ItemDocument> documents,
-            int maxAsks)
-        {
-            var rows = new List<VectorRowSource>(documents.Count * 4);
-            var texts = new List<string>(documents.Count * 4);
-
-            foreach (var document in documents)
-            {
-                var text = document.RenderEmbeddingText();
-                rows.Add(new VectorRowSource(document.ItemId, VectorRowKind.Document, text));
-                texts.Add(text);
-
-                if (document.Enrichment is not { } enrichment)
-                {
-                    continue;
-                }
-
-                foreach (var ask in enrichment.Asks.Take(Math.Max(0, maxAsks)))
-                {
-                    if (string.IsNullOrWhiteSpace(ask))
-                    {
-                        continue;
-                    }
-
-                    rows.Add(new VectorRowSource(document.ItemId, VectorRowKind.Ask, ask));
-                    texts.Add(ask);
-                }
-            }
-
-            return (rows, texts);
         }
 
         private async Task<decimal> EmbedAsync(

@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.5.0.0",
+        "changelog": "A Native route no longer means returning nothing: keyword retrieval is free and now always runs, so queries like 'robots' and 'death love' surface the titles the index already ranked first. Adds a per-item vibe row of genres and themes so mood words like 'sexy' match something focused instead of being averaged against a plot summary. Needs one index rebuild, which costs almost nothing.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.5.0.0/concierge_0.5.0.0.zip",
+        "checksum": "68bf37a6d6cf0c76231790a18ebf9046",
+        "timestamp": "2026-08-01T06:53:02Z"
+      },
+      {
         "version": "0.4.0.0",
         "changelog": "Fixes the router sending short descriptions like 'dark comedy' to native search, where they returned nothing: a short query that names nothing in the library is now treated as a description and served by both paths. The settings search box now shows Jellyfin's own results alongside Concierge's, and the query log records the top titles returned so a search can be judged after the fact.",
         "targetAbi": "10.11.11.0",

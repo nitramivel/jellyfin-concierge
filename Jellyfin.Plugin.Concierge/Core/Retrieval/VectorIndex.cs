@@ -20,6 +20,25 @@ namespace Jellyfin.Plugin.Concierge.Core.Retrieval
 
         /// <summary>One generated "how someone would describe it" phrasing.</summary>
         Ask = 1,
+
+        /// <summary>
+        /// The item's themes alone — what it is about and what watching it feels
+        /// like — as a short vector of their own.
+        /// </summary>
+        /// <remarks>
+        /// Exists because a mood query has nowhere else to land. The themes are also
+        /// inside the document row, but that row averages a title, genres, cast, a
+        /// full overview and a premise, so seven words of tone are diluted to
+        /// nothing. Measured on the owner's library: "erotic" ranked Fifty Shades of
+        /// Grey first on keywords alone, "sexy" did not return it at all, and the
+        /// semantic half could not bridge the two because the only vector carrying
+        /// "erotic" was mostly about a college newspaper and a helicopter.
+        /// <para>
+        /// Costs one extra row per enriched item and no extra model call — the themes
+        /// were already generated.
+        /// </para>
+        /// </remarks>
+        Vibe = 2,
     }
 
     /// <summary>

@@ -1,0 +1,240 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Jellyfin.Plugin.Concierge.Configuration;
+using Jellyfin.Plugin.Concierge.Core.Documents;
+using Jellyfin.Plugin.Concierge.Core.Retrieval;
+using Jellyfin.Plugin.Concierge.Services;
+using Jellyfin.Plugin.Concierge.Services.Embeddings;
+using Jellyfin.Plugin.Concierge.Services.Indexing;
+using Jellyfin.Plugin.Concierge.Services.Runs;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace Jellyfin.Plugin.Concierge.Tests
+{
+    /// <summary>
+    /// A Native route means "spend nothing on this query", not "return nothing".
+    /// </summary>
+    /// <remarks>
+    /// Measured on the owner's library on 1 Aug 2026, before this was fixed:
+    /// <c>robots</c> ranked <i>Love, Death &amp; Robots</i> first and <i>Mr. Robot</i>
+    /// seventh on keywords alone, and <c>death love</c> ranked <i>Love, Death &amp;
+    /// Robots</i> first with a dominant score. Both returned nothing, because the
+    /// Native route short-circuited before retrieval ran — and Jellyfin's own
+    /// substring match cannot rescue either, since "robots" does not occur inside
+    /// "Mr. Robot" and "death love" is the right words in the wrong order.
+    /// </remarks>
+    public class NativeRouteStillRetrievesTests
+    {
+        private sealed class StubIndexStore : IIndexStore
+        {
+            private readonly ConciergeIndex _index;
+
+            public StubIndexStore(ConciergeIndex index) => _index = index;
+
+            public Task<ConciergeIndex?> LoadAsync(EmbeddingProfile profile, CancellationToken ct)
+                => Task.FromResult<ConciergeIndex?>(_index);
+
+            public Task SaveAsync(
+                IndexState state,
+                IReadOnlyList<ItemDocument> documents,
+                IReadOnlyList<VectorRowSource> rows,
+                IReadOnlyList<float[]> vectors,
+                CancellationToken ct) => Task.CompletedTask;
+
+            public Task<IReadOnlyDictionary<Guid, StoredEnrichment>> LoadEnrichmentAsync(CancellationToken ct)
+                => Task.FromResult<IReadOnlyDictionary<Guid, StoredEnrichment>>(
+                    new Dictionary<Guid, StoredEnrichment>());
+
+            public Task SaveEnrichmentAsync(IReadOnlyCollection<StoredEnrichment> e, CancellationToken ct)
+                => Task.CompletedTask;
+
+            public Task<IndexState?> LoadStateAsync(CancellationToken ct)
+                => Task.FromResult<IndexState?>(_index.State);
+
+            public Task DeleteAsync(CancellationToken ct) => Task.CompletedTask;
+        }
+
+        /// <summary>Throws if used, so a Native query touching the network fails loudly.</summary>
+        private sealed class ExplodingEmbeddingFactory : IEmbeddingProviderFactory
+        {
+            public bool WasUsed { get; private set; }
+
+            public IEmbeddingProvider Create(PluginConfiguration config) => Create(new EmbeddingProfile());
+
+            public IEmbeddingProvider Create(EmbeddingProfile profile)
+            {
+                WasUsed = true;
+                throw new InvalidOperationException("a Native query must not embed anything");
+            }
+        }
+
+        private sealed class NullQueryLog : IQueryLogStore
+        {
+            public List<QueryRunRecord> Records { get; } = [];
+
+            public Task RecordAsync(QueryRunRecord run, CancellationToken ct)
+            {
+                Records.Add(run);
+                return Task.CompletedTask;
+            }
+
+            public Task<IReadOnlyList<QueryRunRecord>> RecentAsync(int count, CancellationToken ct)
+                => Task.FromResult<IReadOnlyList<QueryRunRecord>>(Records);
+        }
+
+        private static ConciergeIndex BuildIndex()
+        {
+            var documents = FixtureLibrary.All;
+            var (rows, texts) = VectorRowPlanner.Plan(documents, 8);
+            var vectors = texts.Select(ConceptEmbedder.Embed).ToList();
+
+            return new ConciergeIndex(
+                new IndexState(1, "stub", vectors[0].Length, string.Empty, string.Empty,
+                    DateTime.UtcNow, documents.Count, rows.Count, documents.Count),
+                documents,
+                Bm25Index.Build(documents),
+                VectorIndex.Build(rows, vectors));
+        }
+
+        private static PluginConfiguration Config() => new()
+        {
+            EmbeddingProfiles = [new EmbeddingProfile { Id = "e", Name = "Stub", Model = "stub" }],
+            DefaultEmbeddingProfileId = "e",
+            MaxResults = 10,
+        };
+
+        [Theory]
+        [InlineData("fargo", "Fargo")]
+        [InlineData("lebowski", "The Big Lebowski")]
+        [InlineData("memento", "Memento")]
+        public async Task ATitleLookup_StillGetsResults(string query, string expected)
+        {
+            var embeddings = new ExplodingEmbeddingFactory();
+            var log = new NullQueryLog();
+            var service = new SearchService(
+                new StubIndexStore(BuildIndex()), embeddings, log, NullLogger<SearchService>.Instance);
+
+            var result = await service.SearchAsync(query, null, Config(), CancellationToken.None);
+
+            Assert.Equal("Native", result.Route);
+            Assert.NotEmpty(result.Hits);
+            Assert.Equal(expected, result.Hits[0].Name);
+
+            // Free and instant: no embedding call, so no network and no cost.
+            Assert.False(embeddings.WasUsed);
+            Assert.Equal(0m, result.CostUsd);
+        }
+
+        [Fact]
+        public async Task WordsInTheWrongOrder_StillFindTheTitle()
+        {
+            // The "death love" case: every word names something, so the router calls
+            // it a title lookup — and a substring match fails while BM25 does not.
+            var service = new SearchService(
+                new StubIndexStore(BuildIndex()),
+                new ExplodingEmbeddingFactory(),
+                new NullQueryLog(),
+                NullLogger<SearchService>.Instance);
+
+            var result = await service.SearchAsync("lambs silence", null, Config(), CancellationToken.None);
+
+            Assert.Equal("Native", result.Route);
+            Assert.Equal("The Silence of the Lambs", result.Hits[0].Name);
+        }
+
+        [Fact]
+        public async Task APluralTypedAgainstASingularTitle_StillMatches()
+        {
+            // The "robots" case: stemming is why the keyword half beats a substring
+            // match, and it only helps if retrieval is allowed to run at all.
+            var service = new SearchService(
+                new StubIndexStore(BuildIndex()),
+                new ExplodingEmbeddingFactory(),
+                new NullQueryLog(),
+                NullLogger<SearchService>.Instance);
+
+            var result = await service.SearchAsync("lambs", null, Config(), CancellationToken.None);
+
+            Assert.NotEmpty(result.Hits);
+            Assert.Contains(result.Hits, h => h.Name == "The Silence of the Lambs");
+        }
+
+        [Fact]
+        public async Task TheQueryLog_RecordsWhatCameBack()
+        {
+            var log = new NullQueryLog();
+            var service = new SearchService(
+                new StubIndexStore(BuildIndex()),
+                new ExplodingEmbeddingFactory(),
+                log,
+                NullLogger<SearchService>.Instance);
+
+            await service.SearchAsync("fargo", null, Config(), CancellationToken.None);
+
+            var record = Assert.Single(log.Records);
+            Assert.NotNull(record.TopHits);
+            Assert.Contains("Fargo", record.TopHits!);
+        }
+    }
+
+    /// <summary>
+    /// Every item owns a short vector of nothing but tone, so a mood query has
+    /// something focused to match.
+    /// </summary>
+    public class VectorRowPlannerTests
+    {
+        [Fact]
+        public void EveryEnrichedItem_GetsAVibeRow()
+        {
+            var (rows, texts) = VectorRowPlanner.Plan(FixtureLibrary.All, 8);
+
+            var vibes = rows.Where(r => r.Kind == VectorRowKind.Vibe).ToList();
+            Assert.Equal(FixtureLibrary.All.Count, vibes.Count);
+            Assert.Equal(rows.Count, texts.Count);
+        }
+
+        [Fact]
+        public void TheVibeRow_IsShortAndCarriesOnlyToneAndGenre()
+        {
+            var (rows, texts) = VectorRowPlanner.Plan(FixtureLibrary.All, 8);
+            var index = rows.FindIndex(r =>
+                r.Kind == VectorRowKind.Vibe && r.ItemId == FixtureLibrary.Id("Se7en"));
+
+            var vibe = texts[index];
+
+            Assert.Contains("dark", vibe, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("twisted", vibe, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Thriller", vibe, StringComparison.OrdinalIgnoreCase);
+
+            // The whole point is that it is not the document row. If the plot leaks in
+            // here, a mood query is averaged against a plot summary again.
+            Assert.DoesNotContain("detective", vibe, StringComparison.OrdinalIgnoreCase);
+            Assert.True(vibe.Length < 200, $"vibe row should stay short, was {vibe.Length} chars");
+        }
+
+        [Fact]
+        public void AnItemWithNoEnrichment_StillGetsItsDocumentRow()
+        {
+            var bare = FixtureLibrary.All[0] with { Enrichment = null };
+            var (rows, _) = VectorRowPlanner.Plan([bare], 8);
+
+            var row = Assert.Single(rows);
+            Assert.Equal(VectorRowKind.Document, row.Kind);
+        }
+
+        [Fact]
+        public void MaxAsksPerItem_IsHonoured()
+        {
+            var (rows, _) = VectorRowPlanner.Plan(FixtureLibrary.All, 2);
+
+            foreach (var group in rows.Where(r => r.Kind == VectorRowKind.Ask).GroupBy(r => r.ItemId))
+            {
+                Assert.True(group.Count() <= 2);
+            }
+        }
+    }
+}

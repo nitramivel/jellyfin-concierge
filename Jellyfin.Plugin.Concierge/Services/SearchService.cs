@@ -117,24 +117,22 @@ namespace Jellyfin.Plugin.Concierge.Services
             var index = await GetIndexAsync(config, cancellationToken).ConfigureAwait(false);
             var decision = QueryRouter.Decide(query, index?.Lexical);
 
-            // The router says Jellyfin's own search is the right answer. Returning
-            // nothing is correct: the client already has those results, and the whole
-            // point is that we did not spend anything to agree.
-            if (decision.Route == QueryRoute.Native)
-            {
-                stopwatch.Stop();
-                var native = new SearchResponse(
-                    decision.Route.ToString(),
-                    decision.Reason,
-                    [],
-                    (int)stopwatch.ElapsedMilliseconds,
-                    0m,
-                    null);
-
-                await RecordAsync(runId, started, query, userId, native, [], cancellationToken)
-                    .ConfigureAwait(false);
-                return native;
-            }
+            // A Native route means "do not spend on this query" — it does NOT mean
+            // "return nothing". Keyword retrieval is free, local, and instant, so
+            // there is never a reason to skip it, and skipping it threw away answers
+            // the index already had.
+            //
+            // Measured on the owner's library: "robots" ranked Love, Death & Robots
+            // first and Mr. Robot seventh, and "death love" ranked Love, Death &
+            // Robots first with a dominant score. Both returned nothing, because
+            // Native short-circuited before retrieval ran. Jellyfin's own substring
+            // match cannot find either — "robots" does not occur in "Mr. Robot", and
+            // "death love" is the right words in the wrong order.
+            //
+            // What Native does still skip is the embedding call: a title lookup does
+            // not need semantic retrieval, and hard rule 2 says the native path must
+            // never get slower. Free lexical results cost no network round trip.
+            var lexicalOnly = decision.Route == QueryRoute.Native;
 
             if (index is null)
             {
@@ -166,13 +164,16 @@ namespace Jellyfin.Plugin.Concierge.Services
 
             try
             {
-                (vector, var call) = await SearchVectorsAsync(
-                        query, index, config, limit * 3, cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (call is not null)
+                if (!lexicalOnly)
                 {
-                    calls.Add(call);
+                    (vector, var call) = await SearchVectorsAsync(
+                            query, index, config, limit * 3, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (call is not null)
+                    {
+                        calls.Add(call);
+                    }
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
