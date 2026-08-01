@@ -18,7 +18,11 @@
     'use strict';
 
     var CONTAINER_ID = 'concierge-results';
-    var DEBOUNCE_MS = 450;
+    // Jellyfin's own search waits 500ms because its requests are free. Concierge's
+    // full path spends money, so it needs a genuinely settled query rather than a
+    // slightly later copy of every prefix the native client searched. Enter still
+    // runs immediately for somebody who has finished typing deliberately.
+    var DEBOUNCE_MS = 2000;
 
     // Long enough that a title lookup is settled before we ask. Native results
     // render on their own timeline regardless — hard rule 2 — so this delay costs
@@ -34,7 +38,8 @@
         // Only what is genuinely ours is declared here: the reason line, the
         // timestamp badge, and the degraded note.
         '#concierge-results .concierge-why{opacity:.72;font-size:.86em;white-space:normal;' +
-        'padding:0 .4em;}' +
+        'padding:0 .4em;display:-webkit-box;-webkit-box-orient:vertical;' +
+        '-webkit-line-clamp:2;overflow:hidden;min-height:2.4em;}' +
         '#concierge-results .concierge-note{opacity:.6;font-size:.7em;font-weight:400;}' +
         '#concierge-results .concierge-degraded{opacity:.65;font-size:.85em;' +
         'margin:.4em 0 0 .8em;}' +
@@ -60,6 +65,7 @@
     var timer = null;
     var lastQuery = '';
     var inFlight = null;
+    var inFlightQuery = '';
 
     function log() {
         if (window.ConciergeDebug) {
@@ -92,7 +98,7 @@
         if (!el) {
             el = document.createElement('div');
             el.id = CONTAINER_ID;
-            el.className = 'verticalSection emby-scroller-container concierge-section';
+            el.className = 'verticalSection concierge-section';
         }
 
         position(el, page);
@@ -202,16 +208,23 @@
             + '<a is="emby-linkbutton" href="' + href + '" title="' + escapeHtml(title) + '">'
             + '<bdi>' + escapeHtml(title) + '</bdi></a></div>'
             + (why
-                ? '<div class="cardText cardTextCentered concierge-why">' + escapeHtml(why) + '</div>'
+                ? '<div class="cardText cardTextCentered concierge-why" title="'
+                    + escapeHtml(why) + '">' + escapeHtml(why) + '</div>'
                 : '')
             + '</div></div>';
     }
 
     function section(heading, cards) {
-        return '<h2 class="sectionTitle sectionTitle-cards padded-left padded-right'
+        // Match Jellyfin 10.11's SearchResultsRow rather than merely borrowing its
+        // card classes. One ranked result set is one horizontal row: it does not
+        // grow into a poster wall that pushes the native results off the screen.
+        return '<h2 class="sectionTitle sectionTitle-cards focuscontainer-x padded-left padded-right'
             + ' concierge-heading">' + heading + '</h2>'
-            + '<div class="itemsContainer padded-right vertical-wrap concierge-row">'
-            + cards + '</div>';
+            + '<div is="emby-scroller" data-horizontal="true" data-centerfocus="card"'
+            + ' class="padded-top-focusscale padded-bottom-focusscale concierge-scroller">'
+            + '<div is="emby-itemscontainer"'
+            + ' class="focuscontainer-x itemsContainer scrollSlider concierge-row">'
+            + cards + '</div></div>';
     }
 
     function renderHits(result) {
@@ -244,7 +257,15 @@
             return;
         }
 
-        var hasHits = result.Hits && result.Hits.length;
+        // The router has established that native substring search is the right
+        // answer. Showing the free Concierge retrieval beside it would duplicate
+        // the same title and make the additive path look noisier, not smarter.
+        if (result.Route === 'Native' && !(result.Quotes && result.Quotes.length)) {
+            el.innerHTML = '';
+            return;
+        }
+
+        var hasHits = result.Route !== 'Native' && result.Hits && result.Hits.length;
         var hasQuotes = result.Quotes && result.Quotes.length;
 
         if (!hasHits && !hasQuotes) {
@@ -256,11 +277,7 @@
         var html = '';
 
         if (hasHits) {
-            var label = result.Reranked
-                ? 'Concierge'
-                : 'Concierge <span class="concierge-note">(unranked)</span>';
-
-            html += section(label, renderHits(result));
+            html += section('Concierge matches', renderHits(result));
         }
 
         html += renderQuotes(result);
@@ -278,6 +295,12 @@
             return;
         }
 
+        // Enter is an immediate shortcut, but pressing it after the automatic
+        // settle timer fired must not buy the same answer twice.
+        if (inFlight && inFlightQuery === query) {
+            return;
+        }
+
         if (inFlight) {
             // A newer query supersedes an older one. The old request is left to
             // land and be ignored rather than aborted, because aborting mid-flight
@@ -287,6 +310,7 @@
 
         var token = {};
         inFlight = token;
+        inFlightQuery = query;
 
         window.ApiClient.ajax({
             type: 'POST',
@@ -299,6 +323,8 @@
                 return;
             }
 
+            inFlight = null;
+            inFlightQuery = '';
             log('result', query, result.Route, (result.Hits || []).length);
             render(result);
         }, function (e) {
@@ -306,11 +332,35 @@
                 return;
             }
 
+            inFlight = null;
+            inFlightQuery = '';
             // Never surface a failure on the page. Native results are already
             // there and correct, and an error banner under them would make a
             // working search look broken.
             log('failed', e);
         });
+    }
+
+    function clearResults() {
+        var page = searchPage();
+        var el = page && page.querySelector('#' + CONTAINER_ID);
+
+        if (el) {
+            el.innerHTML = '';
+        }
+    }
+
+    function runNow(value) {
+        var query = (value || '').trim();
+
+        clearTimeout(timer);
+
+        if (query.length < MIN_QUERY_LENGTH) {
+            return;
+        }
+
+        lastQuery = query;
+        run(query);
     }
 
     function onInput(value) {
@@ -323,12 +373,14 @@
         lastQuery = query;
         clearTimeout(timer);
 
-        if (query.length < MIN_QUERY_LENGTH) {
-            var el = searchPage() && searchPage().querySelector('#' + CONTAINER_ID);
-            if (el) {
-                el.innerHTML = '';
-            }
+        // The text on screen now names a different query. An earlier request may
+        // still finish, but its token is invalid immediately so it can never paint
+        // stale cards while the new debounce is running.
+        inFlight = null;
+        inFlightQuery = '';
+        clearResults();
 
+        if (query.length < MIN_QUERY_LENGTH) {
             return;
         }
 
@@ -350,6 +402,11 @@
 
         input.dataset.conciergeBound = '1';
         input.addEventListener('input', function (e) { onInput(e.target.value); });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                runNow(e.target.value);
+            }
+        });
 
         log('bound to the search input');
 

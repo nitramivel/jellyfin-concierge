@@ -155,6 +155,44 @@ namespace Jellyfin.Plugin.Concierge.Tests
         }
 
         [Fact]
+        public void ResultsUseTheNativeHorizontalSearchRowShape()
+        {
+            Assert.Contains("is=\"emby-scroller\"", Script, StringComparison.Ordinal);
+            Assert.Contains("data-horizontal=\"true\"", Script, StringComparison.Ordinal);
+            Assert.Contains("itemsContainer scrollSlider concierge-row", Script, StringComparison.Ordinal);
+            Assert.DoesNotContain("vertical-wrap concierge-row", Script, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ADecisivelyNativeQueryDoesNotGetADuplicateRow()
+        {
+            Assert.Contains("result.Route === 'Native'", Script, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PaidSearchWaitsForASettledQueryButEnterRunsImmediately()
+        {
+            var match = Regex.Match(Script, @"var DEBOUNCE_MS = (\d+);");
+
+            Assert.True(match.Success, "the client script no longer declares its debounce");
+            Assert.True(
+                int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) >= 1500,
+                "a paid search must wait substantially longer than Jellyfin's free native search");
+            Assert.Contains("e.key === 'Enter'", Script, StringComparison.Ordinal);
+            Assert.Contains("runNow(e.target.value)", Script, StringComparison.Ordinal);
+            Assert.Contains("inFlightQuery === query", Script, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ChangingTheQueryInvalidatesAnyOlderResponseImmediately()
+        {
+            var onInput = Between(Script, "function onInput(", "function attach(");
+
+            Assert.Contains("inFlight = null", onInput, StringComparison.Ordinal);
+            Assert.Contains("clearResults()", onInput, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void EveryValueItInterpolatesIntoMarkupIsEscaped()
         {
             // Every card field is server data, and the library's titles are whatever

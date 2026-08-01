@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.11.0.0",
+        "changelog": "Search results now use Jellyfin native horizontal rows with two-line explanations. Native title lookups no longer get a duplicate Concierge row. Paid searches wait for a settled query, Enter runs immediately, and stale or duplicate in-flight results cannot repaint the page.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.0.0/concierge_0.11.0.0.zip",
+        "checksum": "751b3033841a1c41287c9662ad52bc23",
+        "timestamp": "2026-08-01T12:21:02Z"
+      },
+      {
         "version": "0.10.1.0",
         "changelog": "Fixes an upgrade that silently did nothing: the client script URL never changed between releases and carried no cache headers, so browsers kept running the old one.",
         "targetAbi": "10.11.11.0",
