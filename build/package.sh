@@ -6,7 +6,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${VERSION:-0.1.0.0}"
-TARGET_ABI="${TARGET_ABI:-10.11.0.0}"
+# Must not be older than the Jellyfin.Controller/Model version the csproj
+# references: targetAbi is the minimum server the catalogue will offer this to,
+# and claiming a lower one offers the plugin to servers whose assemblies it was
+# not built against.
+TARGET_ABI="${TARGET_ABI:-10.11.11.0}"
 OUT="artifacts/Concierge_${VERSION}"
 
 dotnet build Jellyfin.Plugin.Concierge/Jellyfin.Plugin.Concierge.csproj -c Release -p:Version="${VERSION%.*}"

@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "361b0830-e7c9-460a-b116-0164adec76dd",
+    "name": "Concierge",
+    "description": "Natural-language search for your Jellyfin library \u2014 describe a film and find it, including by the lines spoken in it.",
+    "overview": "Search your library the way you'd describe a film to a friend.",
+    "owner": "nitramivel",
+    "category": "General",
+    "imageUrl": "",
+    "versions": [
+      {
+        "version": "0.2.0.0",
+        "changelog": "Phases 0 and 1: plugin skeleton, dual model profile system, local hybrid index with the enrichment pass, BM25 + vector retrieval with rank fusion, query router, and POST /Concierge/Search. Not yet exercised against a live server.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.2.0.0/concierge_0.2.0.0.zip",
+        "checksum": "56c9785c5e9c2cacc595af440f8cc9ee",
+        "timestamp": "2026-08-01T03:57:02Z"
+      }
+    ]
+  }
+]

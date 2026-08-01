@@ -13,7 +13,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${VERSION:-0.1.0.0}"
-TARGET_ABI="${TARGET_ABI:-10.11.0.0}"
+# Keep in step with package.sh and the csproj's package references.
+TARGET_ABI="${TARGET_ABI:-10.11.11.0}"
 CHANGELOG="${CHANGELOG:-}"
 REPO_URL="https://github.com/nitramivel/jellyfin-concierge"
 

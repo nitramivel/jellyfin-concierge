@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Concierge</title>
+</head>
+<body>
+<div id="ConciergeConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+
+            <style>
+                .conciergeSection { margin: 2em 0 1em 0; }
+                .conciergeSection > h3 { margin-bottom: 0.2em; }
+                .conciergeSectionNote { opacity: 0.75; margin-bottom: 1em; }
+                .conciergeProfileBar { display: flex; align-items: flex-end; gap: 0.6em; flex-wrap: wrap; }
+                .conciergeProfileBar .selectContainer { flex: 1 1 22em; margin-bottom: 0; }
+                .conciergeProfileBar .raised { margin: 0; }
+                .conciergeEditor {
+                    margin-top: 1em; padding: 1em 1.2em 0.4em;
+                    border: 1px solid rgba(127,127,127,0.28); border-radius: 10px;
+                }
+                .conciergeEmpty { margin-top: 1em; opacity: 0.75; }
+            </style>
+
+            <form id="ConciergeConfigForm">
+
+                <div class="conciergeSection">
+                    <h2 style="margin-bottom:0.2em;">Concierge</h2>
+                    <div class="conciergeSectionNote">
+                        Natural-language search over your library. There is no search box in the Jellyfin client yet
+                        &mdash; that arrives in phase 2. Until then, set a model profile below, run the index task,
+                        and try queries here.
+                    </div>
+
+                    <div id="ConciergeStatusPanel" class="conciergeEditor">
+                        <div id="ConciergeStatusText">Checking the index&hellip;</div>
+                        <div style="margin-top:0.8em;">
+                            <button is="emby-button" type="button" id="ConciergeRefreshStatus" class="raised">Refresh</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Try a search -->
+                <div class="conciergeSection">
+                    <h3>Try a search</h3>
+                    <div class="conciergeSectionNote">
+                        Runs the real pipeline against the real index. Queries that look like a title are answered by
+                        Jellyfin's own search and return nothing here &mdash; that is the router doing its job and
+                        spending nothing, not a failure.
+                    </div>
+
+                    <div class="conciergeProfileBar">
+                        <div class="inputContainer" style="flex:1 1 24em; margin-bottom:0;">
+                            <input id="ConciergeTryQuery" type="text" class="emby-input"
+                                   placeholder="dark and twisted" />
+                        </div>
+                        <button is="emby-button" type="button" id="ConciergeTryRun" class="raised">Search</button>
+                    </div>
+
+                    <div id="ConciergeTryResults" style="margin-top:1em;"></div>
+                </div>
+
+                <!-- Chat model profiles -->
+                <div class="conciergeSection">
+                    <h3>Chat models</h3>
+                    <div class="conciergeSectionNote">
+                        A profile is one saved way of calling a model: the provider, the model, the key, and
+                        <strong>its own prices</strong>. Prices live on the profile because a single search runs more
+                        than one model &mdash; a shared price block would report every search at the wrong number.
+                    </div>
+
+                    <div class="conciergeProfileBar">
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="ModelProfileSelect">Profile</label>
+                            <select is="emby-select" id="ModelProfileSelect" class="emby-select-withcolor emby-select"></select>
+                        </div>
+                        <button is="emby-button" type="button" id="ModelProfileAdd" class="raised">Add</button>
+                        <button is="emby-button" type="button" id="ModelProfileDuplicate" class="raised">Duplicate</button>
+                        <button is="emby-button" type="button" id="ModelProfileRemove" class="raised">Remove</button>
+                    </div>
+
+                    <div id="ModelProfileEmpty" class="conciergeEmpty hide">
+                        No chat profiles yet. Add one &mdash; Concierge cannot plan or re-rank without it.
+                    </div>
+
+                    <div id="ModelProfileEditor" class="conciergeEditor hide">
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ProfileName">Name</label>
+                            <input id="ProfileName" type="text" class="emby-input" />
+                            <div class="fieldDescription">What this profile is called in the lists below. Leave blank to name it after the model.</div>
+                        </div>
+
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="Provider">Provider</label>
+                            <select is="emby-select" id="Provider" class="emby-select-withcolor emby-select">
+                                <option value="Anthropic">Anthropic (Claude)</option>
+                                <option value="OpenAi">OpenAI (GPT)</option>
+                                <option value="OpenAiCompatible">Any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, OpenRouter)</option>
+                                <option value="Google">Google (Gemini)</option>
+                                <option value="Grok">xAI (Grok)</option>
+                            </select>
+                            <div class="fieldDescription">
+                                Google and Grok can constrain the model to the exact response shape Concierge expects.
+                                Both are also reachable through the OpenAI-compatible option, but that path gives the
+                                guarantee up &mdash; prefer their own entries.
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="Model">Model</label>
+                            <input id="Model" type="text" class="emby-input" />
+                            <div class="fieldDescription">
+                                For example <code>claude-haiku-4-5-20251001</code> for the plan pass and
+                                <code>claude-sonnet-5</code> for the re-rank.
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ApiKey">API key</label>
+                            <input id="ApiKey" type="password" class="emby-input" autocomplete="off" />
+                            <div class="fieldDescription">Stored in plain text in the plugin configuration file. Optional for a local server.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="BaseUrl">Base URL</label>
+                            <input id="BaseUrl" type="text" class="emby-input" placeholder="http://localhost:11434/v1" />
+                            <div class="fieldDescription">Blank uses the provider's own endpoint. Required for the OpenAI-compatible option.</div>
+                        </div>
+
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="ProfileThinking">Thinking</label>
+                            <select is="emby-select" id="ProfileThinking" class="emby-select-withcolor emby-select">
+                                <option value="Inherit">Follow the global setting</option>
+                                <option value="On">Always think</option>
+                                <option value="Off">Never think</option>
+                            </select>
+                            <div class="fieldDescription">
+                                Thinking competes with the answer for one output cap, and two of the three paid passes
+                                sit inside a search's latency budget. Keeping one model as two profiles &mdash; thinking
+                                and not &mdash; is how enrichment reasons while the plan pass stays fast.
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="InputCostPerMillion">Input price (USD per million tokens)</label>
+                            <input id="InputCostPerMillion" type="number" step="0.01" min="0" class="emby-input" />
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="CachedInputCostPerMillion">Cache-read price (USD per million tokens)</label>
+                            <input id="CachedInputCostPerMillion" type="number" step="0.01" min="0" class="emby-input" />
+                            <div class="fieldDescription">0 uses half this profile's input price. Cache reads are cheap, not free.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="OutputCostPerMillion">Output price (USD per million tokens)</label>
+                            <input id="OutputCostPerMillion" type="number" step="0.01" min="0" class="emby-input" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Embedding profiles -->
+                <div class="conciergeSection">
+                    <h3>Embedding models</h3>
+                    <div class="conciergeSectionNote">
+                        A separate list, because an embedding model has no output price, no cache and cannot think.
+                        <strong>Anthropic is not an option</strong> &mdash; it has no embeddings endpoint. Point this at
+                        a local server and the index costs nothing and no library data leaves the house.
+                    </div>
+
+                    <div class="conciergeProfileBar">
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="EmbeddingProfileSelect">Profile</label>
+                            <select is="emby-select" id="EmbeddingProfileSelect" class="emby-select-withcolor emby-select"></select>
+                        </div>
+                        <button is="emby-button" type="button" id="EmbeddingProfileAdd" class="raised">Add</button>
+                        <button is="emby-button" type="button" id="EmbeddingProfileDuplicate" class="raised">Duplicate</button>
+                        <button is="emby-button" type="button" id="EmbeddingProfileRemove" class="raised">Remove</button>
+                    </div>
+
+                    <div id="EmbeddingProfileEmpty" class="conciergeEmpty hide">
+                        No embedding profiles yet. Add one &mdash; the index cannot be built without it.
+                    </div>
+
+                    <div id="EmbeddingProfileEditor" class="conciergeEditor hide">
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="EmbeddingName">Name</label>
+                            <input id="EmbeddingName" type="text" class="emby-input" />
+                        </div>
+
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="EmbeddingProvider">Provider</label>
+                            <select is="emby-select" id="EmbeddingProvider" class="emby-select-withcolor emby-select">
+                                <option value="OpenAi">OpenAI</option>
+                                <option value="OpenAiCompatible">Any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM)</option>
+                                <option value="Google">Google (Gemini)</option>
+                                <option value="Voyage">Voyage AI</option>
+                            </select>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="EmbeddingModel">Model</label>
+                            <input id="EmbeddingModel" type="text" class="emby-input" placeholder="text-embedding-3-small" />
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="EmbeddingApiKey">API key</label>
+                            <input id="EmbeddingApiKey" type="password" class="emby-input" autocomplete="off" />
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="EmbeddingBaseUrl">Base URL</label>
+                            <input id="EmbeddingBaseUrl" type="text" class="emby-input" placeholder="http://localhost:11434/v1" />
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="EmbeddingDimensions">Dimensions</label>
+                            <input id="EmbeddingDimensions" type="number" step="1" min="0" class="emby-input" />
+                            <div class="fieldDescription">
+                                0 uses the model's native width. Set it only to truncate deliberately, which trades a
+                                little quality for a much smaller index. Changing it invalidates every stored vector.
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="EmbeddingQueryPrefix">Query prefix</label>
+                            <input id="EmbeddingQueryPrefix" type="text" class="emby-input" />
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="EmbeddingDocumentPrefix">Document prefix</label>
+                            <input id="EmbeddingDocumentPrefix" type="text" class="emby-input" />
+                            <div class="fieldDescription">
+                                bge-m3, E5 and nomic-embed-text are trained with markers telling a query apart from a
+                                passage. Using the wrong one degrades results with no error and no symptom, so these
+                                are filled in for models known to want them. Google and Voyage carry the distinction
+                                natively and need none. Changing either invalidates the index.
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="EmbeddingInputCostPerMillion">Price (USD per million tokens)</label>
+                            <input id="EmbeddingInputCostPerMillion" type="number" step="0.001" min="0" class="emby-input" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pass assignment -->
+                <div class="conciergeSection">
+                    <h3>Which model runs which pass</h3>
+                    <div class="conciergeSectionNote">
+                        The two per-query passes run forever and should be as cheap as quality allows. Enrichment runs
+                        <em>once</em> per item and sets the ceiling on what a half-remembered sentence can ever match
+                        &mdash; it should be the best model you can afford. Leave a pass on
+                        &ldquo;use the default profile&rdquo; to follow the default.
+                    </div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="DefaultModelProfileId">Default profile</label>
+                        <select is="emby-select" id="DefaultModelProfileId" class="emby-select-withcolor emby-select"></select>
+                    </div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="PlanModelProfileId">Plan &mdash; reads the sentence</label>
+                        <select is="emby-select" id="PlanModelProfileId" class="emby-select-withcolor emby-select"></select>
+                        <div class="fieldDescription">Per search. Small and fast; this one sits in the latency budget.</div>
+                    </div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="RerankModelProfileId">Re-rank &mdash; orders and explains</label>
+                        <select is="emby-select" id="RerankModelProfileId" class="emby-select-withcolor emby-select"></select>
+                        <div class="fieldDescription">Per search. Mid-tier; this is where quality shows.</div>
+                    </div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="EnrichmentModelProfileId">Enrichment &mdash; index time</label>
+                        <select is="emby-select" id="EnrichmentModelProfileId" class="emby-select-withcolor emby-select"></select>
+                        <div class="fieldDescription">Once per item, in the background. The best model affordable.</div>
+                    </div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="DefaultEmbeddingProfileId">Default embedding profile</label>
+                        <select is="emby-select" id="DefaultEmbeddingProfileId" class="emby-select-withcolor emby-select"></select>
+                    </div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="EmbeddingProfileId">Embeddings &mdash; documents and queries</label>
+                        <select is="emby-select" id="EmbeddingProfileId" class="emby-select-withcolor emby-select"></select>
+                    </div>
+                </div>
+
+                <!-- The index -->
+                <div class="conciergeSection">
+                    <h3>The index</h3>
+                    <div class="conciergeSectionNote">
+                        Built by the <em>Build the Concierge search index</em> scheduled task. Items that have not
+                        changed since the last build cost nothing, so a nightly run of an unchanged library is free.
+                        The index is a cache: deleting it degrades search and touches nothing in your library.
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnableEnrichment" />
+                            <span>Ask a model about each item when indexing</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            <strong>This is what makes plot and mood searches work.</strong> Overviews describe the
+                            premise; people remember moments. John Wick's overview never mentions the dog. With this
+                            off, the index holds only what your library already knew and searches fall back to matching
+                            marketing copy. Costs a couple of dollars once for a few hundred films, then only for
+                            what changes.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="IncludeEpisodes" />
+                            <span>Index individual episodes</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Off by default. Episodes are where specific plots live, but they multiply the index by
+                            roughly 15&times; and a result list can drown a series in its own episodes.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxAsksPerItem">Phrasings kept per item</label>
+                        <input id="MaxAsksPerItem" type="number" step="1" min="0" max="12" class="emby-input" />
+                        <div class="fieldDescription">
+                            How many "how someone would describe it" phrasings are indexed per item. Each becomes a
+                            vector, so this is the first number to turn down on a large library.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="EnrichmentBatchSize">Items per enrichment call</label>
+                        <input id="EnrichmentBatchSize" type="number" step="1" min="1" max="50" class="emby-input" />
+                        <div class="fieldDescription">
+                            The limit is the output cap, not the input. Too large and the answer is cut off mid-JSON
+                            and everything after the cut is lost.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="EmbeddingBatchSize">Texts per embedding call</label>
+                        <input id="EmbeddingBatchSize" type="number" step="1" min="1" max="512" class="emby-input" />
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxResults">Results per search</label>
+                        <input id="MaxResults" type="number" step="1" min="1" max="200" class="emby-input" />
+                    </div>
+                </div>
+
+                <!-- Call shape -->
+                <div class="conciergeSection">
+                    <h3>Call shape</h3>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnableThinking" />
+                            <span>Let models think by default</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            The starting point for any profile set to &ldquo;follow the global setting&rdquo;. Off by
+                            default: thinking counts against the same output cap as the answer, and a search box has
+                            about two and a half seconds before it feels broken.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxOutputTokens">Maximum output tokens per call</label>
+                        <input id="MaxOutputTokens" type="number" step="500" min="500" class="emby-input" />
+                    </div>
+                </div>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginUniqueId = '361b0830-e7c9-460a-b116-0164adec76dd';
+
+            // Both lists are held here while the page is open and written back to
+            // config on save, because each editor below only ever shows one profile:
+            // edits to the others would be lost if the DOM were the only copy.
+            var modelProfiles = [];
+            var embeddingProfiles = [];
+            var activeModelId = '';
+            var activeEmbeddingId = '';
+
+            function escapeHtml(value) {
+                return String(value === null || value === undefined ? '' : value)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+            }
+
+            // Mirrors Guid.ToString("N") server-side. Math.random is fine — this only
+            // has to be unique within one owner's short list, and Normalize re-mints
+            // any id that still manages to collide.
+            function newProfileId() {
+                var out = '';
+                for (var i = 0; i < 32; i++) {
+                    out += Math.floor(Math.random() * 16).toString(16);
+                }
+
+                return out;
+            }
+
+            function describeProfile(profile) {
+                if (profile.Name) {
+                    return profile.Name;
+                }
+
+                return profile.Model ? profile.Provider + ' ' + profile.Model : String(profile.Provider);
+            }
+
+            // Enums arrive as either the member name or its ordinal depending on how
+            // the server serialized them, so match on both.
+            function setEnumSelect(select, value) {
+                var options = select.options;
+                var wanted = String(value === null || value === undefined ? '' : value);
+
+                for (var i = 0; i < options.length; i++) {
+                    if (options[i].value === wanted || String(i) === wanted) {
+                        select.selectedIndex = i;
+                        return;
+                    }
+                }
+
+                select.selectedIndex = 0;
+            }
+
+            // The JavaScript half of Core/Llm/ModelProfiles.Normalize and its
+            // embedding mirror. The server runs the same rules on every read; this
+            // exists so the page never shows a profile without an id. Change one,
+            // change both.
+            function normalizeList(profiles) {
+                var seen = {};
+                var out = (profiles || []).filter(function (p) { return !!p; });
+
+                out.forEach(function (profile) {
+                    if (!profile.Id || seen[profile.Id]) {
+                        profile.Id = newProfileId();
+                    }
+
+                    seen[profile.Id] = true;
+
+                    if (!profile.Name) {
+                        profile.Name = describeProfile(profile);
+                    }
+                });
+
+                return out;
+            }
+
+            function resolveDefaultId(profiles, wanted) {
+                var found = profiles.some(function (p) { return p.Id === wanted; });
+                if (found) {
+                    return wanted;
+                }
+
+                return profiles.length ? profiles[0].Id : '';
+            }
+
+            // Mirrors Core/Llm/EmbeddingProfiles.DefaultPrefixesFor.
+            function defaultPrefixesFor(model) {
+                var m = String(model || '').toUpperCase();
+                if (!m) {
+                    return null;
+                }
+
+                if (m.indexOf('E5') >= 0 || m.indexOf('BGE-M3') >= 0) {
+                    return { query: 'query: ', document: 'passage: ' };
+                }
+
+                if (m.indexOf('NOMIC-EMBED') >= 0) {
+                    return { query: 'search_query: ', document: 'search_document: ' };
+                }
+
+                return null;
+            }
+
+            function fillProfileSelect(select, profiles, selectedId, blankLabel) {
+                var options = [];
+                if (blankLabel) {
+                    options.push('<option value=""' + (selectedId ? '' : ' selected') + '>'
+                        + escapeHtml(blankLabel) + '</option>');
+                }
+
+                profiles.forEach(function (profile) {
+                    var selected = profile.Id === selectedId ? ' selected' : '';
+                    options.push('<option value="' + escapeHtml(profile.Id) + '"' + selected + '>'
+                        + escapeHtml(describeProfile(profile)) + '</option>');
+                });
+
+                select.innerHTML = options.join('');
+            }
+
+            function activeModel() {
+                return modelProfiles.filter(function (p) { return p.Id === activeModelId; })[0];
+            }
+
+            function activeEmbedding() {
+                return embeddingProfiles.filter(function (p) { return p.Id === activeEmbeddingId; })[0];
+            }
+
+            function captureModelEditor(page) {
+                var profile = activeModel();
+                if (!profile) {
+                    return;
+                }
+
+                profile.Name = page.querySelector('#ProfileName').value.trim();
+                profile.Provider = page.querySelector('#Provider').value;
+                profile.Model = page.querySelector('#Model').value.trim();
+                profile.ApiKey = page.querySelector('#ApiKey').value;
+                profile.BaseUrl = page.querySelector('#BaseUrl').value.trim();
+                profile.Thinking = page.querySelector('#ProfileThinking').value;
+                profile.InputCostPerMillion = parseFloat(page.querySelector('#InputCostPerMillion').value) || 0;
+                profile.CachedInputCostPerMillion = parseFloat(page.querySelector('#CachedInputCostPerMillion').value) || 0;
+                profile.OutputCostPerMillion = parseFloat(page.querySelector('#OutputCostPerMillion').value) || 0;
+
+                if (!profile.Name) {
+                    profile.Name = describeProfile(profile);
+                }
+            }
+
+            function captureEmbeddingEditor(page) {
+                var profile = activeEmbedding();
+                if (!profile) {
+                    return;
+                }
+
+                profile.Name = page.querySelector('#EmbeddingName').value.trim();
+                profile.Provider = page.querySelector('#EmbeddingProvider').value;
+                profile.Model = page.querySelector('#EmbeddingModel').value.trim();
+                profile.ApiKey = page.querySelector('#EmbeddingApiKey').value;
+                profile.BaseUrl = page.querySelector('#EmbeddingBaseUrl').value.trim();
+                profile.Dimensions = parseInt(page.querySelector('#EmbeddingDimensions').value, 10) || 0;
+                profile.QueryPrefix = page.querySelector('#EmbeddingQueryPrefix').value;
+                profile.DocumentPrefix = page.querySelector('#EmbeddingDocumentPrefix').value;
+                profile.InputCostPerMillion = parseFloat(page.querySelector('#EmbeddingInputCostPerMillion').value) || 0;
+
+                if (!profile.Name) {
+                    profile.Name = describeProfile(profile);
+                }
+            }
+
+            function renderModelEditor(page) {
+                var profile = activeModel();
+                page.querySelector('#ModelProfileEditor').classList.toggle('hide', !profile);
+                page.querySelector('#ModelProfileEmpty').classList.toggle('hide', !!profile);
+                page.querySelector('#ModelProfileRemove').disabled = !profile;
+                page.querySelector('#ModelProfileDuplicate').disabled = !profile;
+
+                if (!profile) {
+                    return;
+                }
+
+                page.querySelector('#ProfileName').value = profile.Name || '';
+                setEnumSelect(page.querySelector('#Provider'), profile.Provider);
+                page.querySelector('#Model').value = profile.Model || '';
+                page.querySelector('#ApiKey').value = profile.ApiKey || '';
+                page.querySelector('#BaseUrl').value = profile.BaseUrl || '';
+                setEnumSelect(page.querySelector('#ProfileThinking'), profile.Thinking);
+                page.querySelector('#InputCostPerMillion').value = profile.InputCostPerMillion || 0;
+                page.querySelector('#CachedInputCostPerMillion').value = profile.CachedInputCostPerMillion || 0;
+                page.querySelector('#OutputCostPerMillion').value = profile.OutputCostPerMillion || 0;
+            }
+
+            function renderEmbeddingEditor(page) {
+                var profile = activeEmbedding();
+                page.querySelector('#EmbeddingProfileEditor').classList.toggle('hide', !profile);
+                page.querySelector('#EmbeddingProfileEmpty').classList.toggle('hide', !!profile);
+                page.querySelector('#EmbeddingProfileRemove').disabled = !profile;
+                page.querySelector('#EmbeddingProfileDuplicate').disabled = !profile;
+
+                if (!profile) {
+                    return;
+                }
+
+                page.querySelector('#EmbeddingName').value = profile.Name || '';
+                setEnumSelect(page.querySelector('#EmbeddingProvider'), profile.Provider);
+                page.querySelector('#EmbeddingModel').value = profile.Model || '';
+                page.querySelector('#EmbeddingApiKey').value = profile.ApiKey || '';
+                page.querySelector('#EmbeddingBaseUrl').value = profile.BaseUrl || '';
+                page.querySelector('#EmbeddingDimensions').value = profile.Dimensions || 0;
+                page.querySelector('#EmbeddingQueryPrefix').value = profile.QueryPrefix || '';
+                page.querySelector('#EmbeddingDocumentPrefix').value = profile.DocumentPrefix || '';
+                page.querySelector('#EmbeddingInputCostPerMillion').value = profile.InputCostPerMillion || 0;
+            }
+
+            // Re-fills every profile list from the arrays, preserving each select's
+            // current choice. Blank on a per-pass select is a real value meaning
+            // "follow the default", so it survives a re-render like any other.
+            function renderPassSelects(page) {
+                var defaultId = page.querySelector('#DefaultModelProfileId').value;
+                var defaultEmbeddingId = page.querySelector('#DefaultEmbeddingProfileId').value;
+                var planId = page.querySelector('#PlanModelProfileId').value;
+                var rerankId = page.querySelector('#RerankModelProfileId').value;
+                var enrichmentId = page.querySelector('#EnrichmentModelProfileId').value;
+                var embeddingId = page.querySelector('#EmbeddingProfileId').value;
+
+                fillProfileSelect(page.querySelector('#DefaultModelProfileId'), modelProfiles,
+                    resolveDefaultId(modelProfiles, defaultId), null);
+                fillProfileSelect(page.querySelector('#DefaultEmbeddingProfileId'), embeddingProfiles,
+                    resolveDefaultId(embeddingProfiles, defaultEmbeddingId), null);
+                fillProfileSelect(page.querySelector('#PlanModelProfileId'), modelProfiles,
+                    planId, 'Use the default profile');
+                fillProfileSelect(page.querySelector('#RerankModelProfileId'), modelProfiles,
+                    rerankId, 'Use the default profile');
+                fillProfileSelect(page.querySelector('#EnrichmentModelProfileId'), modelProfiles,
+                    enrichmentId, 'Use the default profile');
+                fillProfileSelect(page.querySelector('#EmbeddingProfileId'), embeddingProfiles,
+                    embeddingId, 'Use the default embedding profile');
+            }
+
+            function renderAll(page) {
+                fillProfileSelect(page.querySelector('#ModelProfileSelect'), modelProfiles, activeModelId, null);
+                fillProfileSelect(page.querySelector('#EmbeddingProfileSelect'), embeddingProfiles, activeEmbeddingId, null);
+
+                renderModelEditor(page);
+                renderEmbeddingEditor(page);
+                renderPassSelects(page);
+            }
+
+            function loadConfig(page, config) {
+                modelProfiles = normalizeList(config.ModelProfiles);
+                embeddingProfiles = normalizeList(config.EmbeddingProfiles);
+
+                activeModelId = resolveDefaultId(modelProfiles, config.DefaultModelProfileId || '');
+                activeEmbeddingId = resolveDefaultId(embeddingProfiles, config.DefaultEmbeddingProfileId || '');
+
+                // Filled from config before renderPassSelects reads them back off the
+                // DOM, so a stored assignment survives the first render.
+                fillProfileSelect(page.querySelector('#DefaultModelProfileId'), modelProfiles,
+                    resolveDefaultId(modelProfiles, config.DefaultModelProfileId || ''), null);
+                fillProfileSelect(page.querySelector('#DefaultEmbeddingProfileId'), embeddingProfiles,
+                    resolveDefaultId(embeddingProfiles, config.DefaultEmbeddingProfileId || ''), null);
+                fillProfileSelect(page.querySelector('#PlanModelProfileId'), modelProfiles,
+                    config.PlanModelProfileId || '', 'Use the default profile');
+                fillProfileSelect(page.querySelector('#RerankModelProfileId'), modelProfiles,
+                    config.RerankModelProfileId || '', 'Use the default profile');
+                fillProfileSelect(page.querySelector('#EnrichmentModelProfileId'), modelProfiles,
+                    config.EnrichmentModelProfileId || '', 'Use the default profile');
+                fillProfileSelect(page.querySelector('#EmbeddingProfileId'), embeddingProfiles,
+                    config.EmbeddingProfileId || '', 'Use the default embedding profile');
+
+                page.querySelector('#EnableThinking').checked = !!config.EnableThinking;
+                page.querySelector('#MaxOutputTokens').value = config.MaxOutputTokens || 8000;
+
+                // EnableEnrichment defaults to ON, so an undefined value — a config
+                // written before this setting existed — must read as true rather than
+                // silently turning the pass off.
+                page.querySelector('#EnableEnrichment').checked = config.EnableEnrichment !== false;
+                page.querySelector('#IncludeEpisodes').checked = !!config.IncludeEpisodes;
+                page.querySelector('#MaxAsksPerItem').value = config.MaxAsksPerItem || 8;
+                page.querySelector('#EnrichmentBatchSize').value = config.EnrichmentBatchSize || 12;
+                page.querySelector('#EmbeddingBatchSize').value = config.EmbeddingBatchSize || 64;
+                page.querySelector('#MaxResults').value = config.MaxResults || 40;
+
+                renderAll(page);
+            }
+
+            function saveConfig(page) {
+                captureModelEditor(page);
+                captureEmbeddingEditor(page);
+
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
+                    config.ModelProfiles = modelProfiles;
+                    config.EmbeddingProfiles = embeddingProfiles;
+
+                    config.DefaultModelProfileId = page.querySelector('#DefaultModelProfileId').value;
+                    config.DefaultEmbeddingProfileId = page.querySelector('#DefaultEmbeddingProfileId').value;
+                    config.PlanModelProfileId = page.querySelector('#PlanModelProfileId').value;
+                    config.RerankModelProfileId = page.querySelector('#RerankModelProfileId').value;
+                    config.EnrichmentModelProfileId = page.querySelector('#EnrichmentModelProfileId').value;
+                    config.EmbeddingProfileId = page.querySelector('#EmbeddingProfileId').value;
+
+                    config.EnableThinking = page.querySelector('#EnableThinking').checked;
+                    config.MaxOutputTokens = parseInt(page.querySelector('#MaxOutputTokens').value, 10) || 8000;
+
+                    config.EnableEnrichment = page.querySelector('#EnableEnrichment').checked;
+                    config.IncludeEpisodes = page.querySelector('#IncludeEpisodes').checked;
+                    config.MaxAsksPerItem = parseInt(page.querySelector('#MaxAsksPerItem').value, 10) || 8;
+                    config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
+                    config.EmbeddingBatchSize = parseInt(page.querySelector('#EmbeddingBatchSize').value, 10) || 64;
+                    config.MaxResults = parseInt(page.querySelector('#MaxResults').value, 10) || 40;
+
+                    ApiClient.updatePluginConfiguration(pluginUniqueId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    });
+                });
+            }
+
+            var page = document.querySelector('#ConciergeConfigPage');
+
+            page.addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
+                    loadConfig(page, config);
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            page.querySelector('#ConciergeConfigForm').addEventListener('submit', function (e) {
+                saveConfig(page);
+                e.preventDefault();
+                return false;
+            });
+
+            page.querySelector('#ModelProfileSelect').addEventListener('change', function () {
+                captureModelEditor(page);
+                activeModelId = this.value;
+                renderAll(page);
+            });
+
+            page.querySelector('#ModelProfileAdd').addEventListener('click', function () {
+                captureModelEditor(page);
+                var profile = {
+                    Id: newProfileId(),
+                    Name: 'New profile',
+                    Provider: 'Anthropic',
+                    Model: '',
+                    ApiKey: '',
+                    BaseUrl: '',
+                    Thinking: 'Inherit',
+                    InputCostPerMillion: 0,
+                    CachedInputCostPerMillion: 0,
+                    OutputCostPerMillion: 0
+                };
+                modelProfiles.push(profile);
+                activeModelId = profile.Id;
+                renderAll(page);
+            });
+
+            page.querySelector('#ModelProfileDuplicate').addEventListener('click', function () {
+                captureModelEditor(page);
+                var source = activeModel();
+                if (!source) {
+                    return;
+                }
+
+                var copy = JSON.parse(JSON.stringify(source));
+                copy.Id = newProfileId();
+                copy.Name = (source.Name || describeProfile(source)) + ' (copy)';
+                modelProfiles.push(copy);
+                activeModelId = copy.Id;
+                renderAll(page);
+            });
+
+            page.querySelector('#ModelProfileRemove').addEventListener('click', function () {
+                modelProfiles = modelProfiles.filter(function (p) { return p.Id !== activeModelId; });
+                activeModelId = modelProfiles.length ? modelProfiles[0].Id : '';
+                renderAll(page);
+            });
+
+            page.querySelector('#EmbeddingProfileSelect').addEventListener('change', function () {
+                captureEmbeddingEditor(page);
+                activeEmbeddingId = this.value;
+                renderAll(page);
+            });
+
+            page.querySelector('#EmbeddingProfileAdd').addEventListener('click', function () {
+                captureEmbeddingEditor(page);
+                var profile = {
+                    Id: newProfileId(),
+                    Name: 'New embedding profile',
+                    Provider: 'OpenAi',
+                    Model: '',
+                    ApiKey: '',
+                    BaseUrl: '',
+                    Dimensions: 0,
+                    QueryPrefix: '',
+                    DocumentPrefix: '',
+                    InputCostPerMillion: 0
+                };
+                embeddingProfiles.push(profile);
+                activeEmbeddingId = profile.Id;
+                renderAll(page);
+            });
+
+            page.querySelector('#EmbeddingProfileDuplicate').addEventListener('click', function () {
+                captureEmbeddingEditor(page);
+                var source = activeEmbedding();
+                if (!source) {
+                    return;
+                }
+
+                var copy = JSON.parse(JSON.stringify(source));
+                copy.Id = newProfileId();
+                copy.Name = (source.Name || describeProfile(source)) + ' (copy)';
+                embeddingProfiles.push(copy);
+                activeEmbeddingId = copy.Id;
+                renderAll(page);
+            });
+
+            page.querySelector('#EmbeddingProfileRemove').addEventListener('click', function () {
+                embeddingProfiles = embeddingProfiles.filter(function (p) { return p.Id !== activeEmbeddingId; });
+                activeEmbeddingId = embeddingProfiles.length ? embeddingProfiles[0].Id : '';
+                renderAll(page);
+            });
+
+            // Fill the prefixes the moment a model known to want them is named, so
+            // the owner sees what will be used rather than discovering it in a file.
+            page.querySelector('#EmbeddingModel').addEventListener('change', function () {
+                var queryInput = page.querySelector('#EmbeddingQueryPrefix');
+                var documentInput = page.querySelector('#EmbeddingDocumentPrefix');
+                if (queryInput.value || documentInput.value) {
+                    return;
+                }
+
+                var defaults = defaultPrefixesFor(this.value);
+                if (defaults) {
+                    queryInput.value = defaults.query;
+                    documentInput.value = defaults.document;
+                }
+            });
+
+            // Renaming a profile should update every list it appears in without
+            // waiting for a save.
+            page.querySelector('#ProfileName').addEventListener('change', function () {
+                captureModelEditor(page);
+                renderAll(page);
+            });
+
+            page.querySelector('#EmbeddingName').addEventListener('change', function () {
+                captureEmbeddingEditor(page);
+                renderAll(page);
+            });
+
+            // ---- index status ----
+
+            function refreshStatus() {
+                var target = page.querySelector('#ConciergeStatusText');
+                target.innerHTML = 'Checking the index&hellip;';
+
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Status'),
+                    dataType: 'json'
+                }).then(function (status) {
+                    if (!status.HasIndex) {
+                        target.innerHTML = escapeHtml(status.Note);
+                        return;
+                    }
+
+                    var built = status.BuiltUtc ? new Date(status.BuiltUtc).toLocaleString() : 'unknown';
+                    var html = '<strong>Index generation ' + escapeHtml(String(status.Generation)) + '</strong> — '
+                        + escapeHtml(String(status.Items)) + ' item(s), '
+                        + escapeHtml(String(status.Rows)) + ' vector row(s), '
+                        + escapeHtml(String(status.Enriched)) + ' enriched.<br/>'
+                        + 'Built ' + escapeHtml(built) + ' with '
+                        + escapeHtml(status.EmbeddingModel) + ' at '
+                        + escapeHtml(String(status.Dimensions)) + ' dimensions.';
+
+                    if (status.Note) {
+                        html += '<div style="margin-top:0.6em;opacity:0.85;">' + escapeHtml(status.Note) + '</div>';
+                    }
+
+                    target.innerHTML = html;
+                }, function () {
+                    target.innerHTML = 'Could not read the index status.';
+                });
+            }
+
+            page.querySelector('#ConciergeRefreshStatus').addEventListener('click', refreshStatus);
+
+            // ---- try a search ----
+
+            function runTrySearch() {
+                var query = page.querySelector('#ConciergeTryQuery').value.trim();
+                var target = page.querySelector('#ConciergeTryResults');
+
+                if (!query) {
+                    target.innerHTML = '';
+                    return;
+                }
+
+                target.innerHTML = 'Searching&hellip;';
+
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('Concierge/Search'),
+                    data: JSON.stringify({ Query: query, Limit: 10 }),
+                    contentType: 'application/json',
+                    dataType: 'json'
+                }).then(function (result) {
+                    var head = '<div style="opacity:0.75;margin-bottom:0.6em;">Routed to <strong>'
+                        + escapeHtml(result.Route) + '</strong> — ' + escapeHtml(result.RouteReason)
+                        + ' · ' + escapeHtml(String(result.DurationMs)) + 'ms';
+
+                    if (result.CostUsd) {
+                        head += ' · $' + escapeHtml(result.CostUsd.toFixed(5));
+                    }
+
+                    head += '</div>';
+
+                    if (result.Degraded) {
+                        head += '<div class="conciergeSectionNote">' + escapeHtml(result.Degraded) + '</div>';
+                    }
+
+                    if (!result.Hits || !result.Hits.length) {
+                        target.innerHTML = head + '<div>No Concierge results. '
+                            + 'If the route above says Native, Jellyfin\'s own search already answered this one.</div>';
+                        return;
+                    }
+
+                    var rows = result.Hits.map(function (hit, i) {
+                        var year = hit.Year ? ' (' + escapeHtml(String(hit.Year)) + ')' : '';
+                        return '<div style="padding:0.35em 0;border-bottom:1px solid rgba(127,127,127,0.18);">'
+                            + '<strong>' + escapeHtml(String(i + 1)) + '. ' + escapeHtml(hit.Name) + '</strong>'
+                            + year
+                            + '<div style="font-size:0.88em;opacity:0.7;">' + escapeHtml(hit.Why)
+                            + ' · lexical ' + escapeHtml(hit.LexicalRank === null ? '—' : String(hit.LexicalRank))
+                            + ' · semantic ' + escapeHtml(hit.VectorRank === null ? '—' : String(hit.VectorRank))
+                            + '</div></div>';
+                    }).join('');
+
+                    target.innerHTML = head + rows;
+                }, function () {
+                    target.innerHTML = 'The search request failed. Check the server log.';
+                });
+            }
+
+            page.querySelector('#ConciergeTryRun').addEventListener('click', runTrySearch);
+            page.querySelector('#ConciergeTryQuery').addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    runTrySearch();
+                }
+            });
+
+            page.addEventListener('pageshow', refreshStatus);
+        })();
+    </script>
+</div>
+</body>
+</html>

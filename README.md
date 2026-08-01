@@ -6,7 +6,7 @@
 
 [![Jellyfin](https://img.shields.io/badge/Jellyfin-10.11.x-aa5cc3?logo=jellyfin&logoColor=white)](https://jellyfin.org)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
-[![Status](https://img.shields.io/badge/status-planning-lightgrey)](#-status)
+[![Status](https://img.shields.io/badge/status-phase%201%20%C2%B7%20unmeasured-lightgrey)](#-status)
 
 *"that 90s movie where the guy can't make new memories" · "something funny but not stupid"<br/>"90s sci-fi under two hours I haven't seen" · "I'm walking here!"*
 
@@ -96,12 +96,21 @@ data leaves the house.
 
 ## 📊 Status
 
-**Planning — no code yet.** [`PLAN.md`](PLAN.md) is the full execution plan:
-architecture, phases, fourteen hard rules, the cost model, and the open questions
-that could still change the design. It's grounded rather than speculative — the
-subtitle coverage, API surface, and cost figures in it were measured against a
-real library and the real 10.11.11 assemblies, and where something couldn't be
-verified it says so.
+**Phases 0 and 1 are written — it searches, and nobody has run it yet.** In the
+repo: the plugin and its provider stacks, the index (documents, enrichment,
+BM25, embeddings, fusion), the router, the daily index task, and
+`POST /Concierge/Search`. 114 tests, no network.
+
+**Not yet installed on a live server, and no index has ever been built**, so
+there are no quality numbers — [`eval/results-phase1.md`](eval/results-phase1.md)
+says exactly what was and wasn't measured. Treat the search quality here as
+designed-for, not demonstrated.
+
+[`PLAN.md`](PLAN.md) is the full execution plan: architecture, phases, fourteen
+hard rules, the cost model, and the open questions that could still change the
+design. It's grounded rather than speculative — the subtitle coverage, API
+surface, and cost figures in it were measured against a real library and the
+real 10.11.11 assemblies, and where something couldn't be verified it says so.
 
 Concierge is the second plugin in a pair; [Curator](https://github.com/nitramivel/jellyfin-curator)
 is running against a live 10.11.11 server, and its provider stack, release
@@ -117,8 +126,8 @@ keyword+semantic retrieval, and dialogue search.
 
 | Phase | What lands |
 |---|---|
-| **0** | Plugin skeleton, model profiles, config page |
-| **1** | The index + free keyword/semantic search, via API |
+| **0** ✅ | Plugin skeleton, model profiles, config page |
+| **1** ✅ | The index + free keyword/semantic search, via API |
 | **2** | Natural language: intent parsing, re-ranking, explanations, web UI |
 | **3** | 🗣️ Quote search with timestamps |
 | **4** | Health checks, personalization, "more like this" |

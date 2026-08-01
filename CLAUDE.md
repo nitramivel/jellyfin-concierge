@@ -15,14 +15,39 @@ writes to the library. Reject feature requests that amount to "add a filter UI."
 
 ## Status
 
-**Phase 0 — nothing built yet.** The repo currently holds the plan only. The
-first code to write is the plugin skeleton and the model profile system
-(`PLAN.md` §3.3 and §9 phase 0).
+**Phases 0 and 1 are written; neither has been run against anything real.**
+114 tests green, warnings as errors, compiling against the real 10.11.11 ABI.
 
-**Before writing any code, answer open question 0** (`PLAN.md` §12): whether to
-build this at all, or contribute the differentiating parts upstream to
-`jellyfin-plugin-ai-search`. Phase 0 and phase 1 are worth building either way;
-phase 2 is where duplicated effort would land.
+What exists: the plugin skeleton and both profile lists (phase 0); documents,
+hashing, the enrichment pass, BM25, vectors, fusion, the router, the index
+store, the daily build task and `POST /Concierge/Search` (phase 1).
+
+**What is unproven, and it is the important half.** Nothing has been installed
+on the live server, no index has ever been built, and the 40-query evaluation
+set in `eval/queries.md` has no expected answers because the library could not
+be read. `eval/results-phase1.md` records what *was* measured — the retrieval
+stack over a fixture library with a stand-in embedder — and is explicit that
+this proves the pipeline rather than the model. **Do not treat any quality claim
+about this plugin as established.** The cheapest unblock is a local embedding
+model (LM Studio or Ollama), which makes the entire free path measurable for
+nothing.
+
+The first real measurement to take is the one `eval/README.md` names: the same
+set with `EnableEnrichment` off, then on. That delta says whether enrichment is
+carrying the feature or decorating it, and every phase-2 cost decision depends
+on the answer.
+
+**Open question 0 is still open** (`PLAN.md` §12): whether to build this at all
+or contribute the differentiating parts upstream to `jellyfin-plugin-ai-search`.
+Phase 0 and phase 1 are worth building either way; **phase 2 is where duplicated
+effort would land**, so the answer is owed before phase 2 starts, not before the
+next commit.
+
+**Open question 5 now has code attached** — `QueryRunRecord` stores the query
+text and the user id, because that is what makes a bad result diagnosable, and
+it is also a log of what everyone in the house searched for. Decide whether that
+log is admin-visible per user, anonymized, or dropped, before anyone but the
+owner uses this.
 
 ## Development commands
 
