@@ -135,6 +135,30 @@ The plugin files must be at the zip root. Re-zipping changes the checksum.
 Release notes belong in `manifest.json` and the GitHub release, not standalone
 `RELEASE_NOTES_*.md` files.
 
+### Keep the manifest short
+
+`manifest.json` is a catalogue, not a changelog. It reached twenty-four entries
+once and was cut back to five, each folding in the releases below it — which is
+honest because plugin builds are cumulative: installing `0.13.0.0` really does
+give you `0.11.0.0` through `0.13.0.0`.
+
+The kept entries are an upgrade ladder, not a sample. Each one is somewhere a
+person might deliberately want to stop: the current build, the last before a
+risky feature, the first where something started working.
+
+**When cutting a release, decide whether it earns an entry or folds into the top
+one.** Adding to the top by reflex is how it got to twenty-four. Rewriting the
+top entry's changelog and checksum for a superseding build is usually right;
+a new entry is for a version somebody might want to pin to.
+
+**Never rewrite a kept entry's `checksum`, `sourceUrl`, `targetAbi` or
+`timestamp`.** Catalogue installs verify the MD5, so changing any of them breaks
+installation for whoever is on that version. Only `changelog` is editable after
+publication. Verify every kept entry against its published asset after editing.
+
+Folding an entry out of the manifest does not delete its GitHub release or tag,
+and should not.
+
 Plugin GUID: `361b0830-e7c9-460a-b116-0164adec76dd`.
 
 ## Dependencies and prior art
