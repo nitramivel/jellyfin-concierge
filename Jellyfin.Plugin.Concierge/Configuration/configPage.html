@@ -252,6 +252,21 @@
                                 <td><select is="emby-select" id="EnrichmentModelProfileId" class="emby-select-withcolor emby-select"></select></td>
                             </tr>
                             <tr>
+                                <td><label for="EpisodeModelProfileId">Episodes</label></td>
+                                <td>
+                                    Enrichment, but for episodes.
+                                    <div class="conciergePassWhen">
+                                        A different job and mostly a worse one: there can be twenty times as
+                                        many, and a model that knows every film ever made has still never
+                                        heard of most of them &mdash; <strong>45% came back unknown</strong> on
+                                        this library. Paying a flagship model per episode to say it does not
+                                        know is the most expensive way to learn nothing. Put something cheap
+                                        here.
+                                    </div>
+                                </td>
+                                <td><select is="emby-select" id="EpisodeModelProfileId" class="emby-select-withcolor emby-select"></select></td>
+                            </tr>
+                            <tr>
                                 <td><label for="EmbeddingProfileId">Embeddings</label></td>
                                 <td>
                                     Turns items and queries into vectors, which is how a search finds something
@@ -513,6 +528,15 @@
                                 <td><select is="emby-select" id="RerankThinking" class="emby-select-withcolor emby-select"><option value="Inherit">Follow the default</option><option value="On">Think</option><option value="Off">Do not think</option></select></td>
                             </tr>
                             <tr>
+                                <td><label for="EpisodeThinking">Episodes</label></td>
+                                <td>
+                                    Enrichment, on episodes.
+                                    <div class="conciergePassWhen">Thinking about a film once is cheap.
+                                    Thinking about five thousand episodes is not.</div>
+                                </td>
+                                <td><select is="emby-select" id="EpisodeThinking" class="emby-select-withcolor emby-select"><option value="Inherit">Follow the default</option><option value="On">Think</option><option value="Off">Do not think</option></select></td>
+                            </tr>
+                            <tr>
                                 <td><label for="EnrichmentThinking">Enrichment</label></td>
                                 <td>
                                     Writes what each item is about.
@@ -627,6 +651,27 @@
                         <div class="fieldDescription">
                             How many "how someone would describe it" phrasings are indexed per item. Each becomes a
                             vector, so this is the first number to turn down on a large library.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxThemesPerItem">Themes per item</label>
+                        <input id="MaxThemesPerItem" type="number" step="1" min="0" max="16" class="emby-input" />
+                        <div class="fieldDescription">
+                            What an item is about <em>and</em> what watching it feels like. These are the only
+                            place a mood query has anywhere to land &mdash; the Vibe row is built from them
+                            alone &mdash; so this is the dial for &ldquo;something dark and twisted&rdquo;
+                            working at all.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxMomentsPerItem">Moments per item</label>
+                        <input id="MaxMomentsPerItem" type="number" step="1" min="0" max="16" class="emby-input" />
+                        <div class="fieldDescription">
+                            The specific images people actually remember: the dog, the spinning top. Never sent
+                            to the re-ranker &mdash; they are the field most likely to be a twist stated plainly,
+                            and they exist to be searched rather than shown.
                         </div>
                     </div>
 
@@ -1185,6 +1230,8 @@
                     config.RerankModelProfileId || '', 'Use the default profile');
                 fillProfileSelect(page.querySelector('#EnrichmentModelProfileId'), modelProfiles,
                     config.EnrichmentModelProfileId || '', 'Use the default profile');
+                fillProfileSelect(page.querySelector('#EpisodeModelProfileId'), modelProfiles,
+                    config.EpisodeModelProfileId || '', 'Use the enrichment profile');
                 fillProfileSelect(page.querySelector('#EmbeddingProfileId'), embeddingProfiles,
                     config.EmbeddingProfileId || '', 'Use the default embedding profile');
 
@@ -1195,6 +1242,7 @@
                 setEnumSelect(page.querySelector('#PlanThinking'), config.PlanThinking);
                 setEnumSelect(page.querySelector('#RerankThinking'), config.RerankThinking);
                 setEnumSelect(page.querySelector('#EnrichmentThinking'), config.EnrichmentThinking);
+                setEnumSelect(page.querySelector('#EpisodeThinking'), config.EpisodeThinking);
                 page.querySelector('#MaxOutputTokens').value = config.MaxOutputTokens || 8000;
 
                 // EnableEnrichment defaults to ON, so an undefined value — a config
@@ -1203,6 +1251,8 @@
                 page.querySelector('#EnableEnrichment').checked = config.EnableEnrichment !== false;
                 page.querySelector('#IncludeEpisodes').checked = !!config.IncludeEpisodes;
                 page.querySelector('#MaxAsksPerItem').value = config.MaxAsksPerItem || 10;
+                page.querySelector('#MaxThemesPerItem').value = config.MaxThemesPerItem || 8;
+                page.querySelector('#MaxMomentsPerItem').value = config.MaxMomentsPerItem || 6;
                 page.querySelector('#EnrichmentBatchSize').value = config.EnrichmentBatchSize || 12;
                 page.querySelector('#EmbeddingBatchSize').value = config.EmbeddingBatchSize || 64;
                 page.querySelector('#MaxResults').value = config.MaxResults || 40;
@@ -1248,17 +1298,21 @@
                     config.PlanModelProfileId = page.querySelector('#PlanModelProfileId').value;
                     config.RerankModelProfileId = page.querySelector('#RerankModelProfileId').value;
                     config.EnrichmentModelProfileId = page.querySelector('#EnrichmentModelProfileId').value;
+                    config.EpisodeModelProfileId = page.querySelector('#EpisodeModelProfileId').value;
                     config.EmbeddingProfileId = page.querySelector('#EmbeddingProfileId').value;
 
                     config.EnableThinking = page.querySelector('#EnableThinking').value === 'On';
                     config.PlanThinking = page.querySelector('#PlanThinking').value;
                     config.RerankThinking = page.querySelector('#RerankThinking').value;
                     config.EnrichmentThinking = page.querySelector('#EnrichmentThinking').value;
+                    config.EpisodeThinking = page.querySelector('#EpisodeThinking').value;
                     config.MaxOutputTokens = parseInt(page.querySelector('#MaxOutputTokens').value, 10) || 8000;
 
                     config.EnableEnrichment = page.querySelector('#EnableEnrichment').checked;
                     config.IncludeEpisodes = page.querySelector('#IncludeEpisodes').checked;
                     config.MaxAsksPerItem = parseInt(page.querySelector('#MaxAsksPerItem').value, 10) || 10;
+                    config.MaxThemesPerItem = parseInt(page.querySelector('#MaxThemesPerItem').value, 10) || 8;
+                    config.MaxMomentsPerItem = parseInt(page.querySelector('#MaxMomentsPerItem').value, 10) || 6;
                     config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
                     config.EmbeddingBatchSize = parseInt(page.querySelector('#EmbeddingBatchSize').value, 10) || 64;
                     config.MaxResults = parseInt(page.querySelector('#MaxResults').value, 10) || 40;

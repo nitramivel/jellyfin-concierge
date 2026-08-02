@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Jellyfin.Plugin.Concierge.Core.Retrieval;
 
 namespace Jellyfin.Plugin.Concierge.Core.Documents
@@ -64,14 +65,9 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
                     continue;
                 }
 
-                // Genres ride along with the themes because "romance" and "horror" are
-                // part of how people describe a mood, not just a shelf to file it on.
                 if (enrichment.Themes.Count > 0)
                 {
-                    Add(
-                        document.ItemId,
-                        VectorRowKind.Vibe,
-                        string.Join(", ", document.Genres.Concat(enrichment.Themes)));
+                    Add(document.ItemId, VectorRowKind.Vibe, Vibe(document, enrichment));
                 }
 
                 foreach (var ask in enrichment.Asks.Take(Math.Max(0, maxAsks)))
@@ -81,6 +77,75 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
             }
 
             return (rows, texts);
+        }
+
+        /// <summary>
+        /// The mood row: what an item is about and what watching it feels like.
+        /// </summary>
+        /// <remarks>
+        /// <b>Written as a sentence, not a list.</b> The other side of this comparison
+        /// is a person typing "something dark and twisted from the nineties" — a
+        /// phrase. A comma-separated dump of genres and themes is not a phrase, and
+        /// embedding models put prose nearer prose. The words are identical; the
+        /// shape is what changes.
+        /// <para>
+        /// The era is in because mood queries carry one so often — "nostalgic 90s
+        /// classics" is two thirds mood and one third decade, and without it the
+        /// decade has nowhere on this row to land.
+        /// </para>
+        /// <para>
+        /// Everything else is deliberately still out. This row's whole advantage is
+        /// that it is short: the same themes sit inside the document row too, where a
+        /// title, cast, studios and a full overview dilute seven words of tone to
+        /// nothing. Adding plot here would recreate exactly that.
+        /// </para>
+        /// </remarks>
+        /// <param name="document">The item.</param>
+        /// <param name="enrichment">Its enrichment.</param>
+        /// <returns>The text to embed.</returns>
+        public static string Vibe(ItemDocument document, Enrichment enrichment)
+        {
+            ArgumentNullException.ThrowIfNull(document);
+            ArgumentNullException.ThrowIfNull(enrichment);
+
+            // A theme that merely repeats a genre spends one of the few words this row
+            // has on saying "horror" twice.
+            var seen = new HashSet<string>(document.Genres, StringComparer.OrdinalIgnoreCase);
+            var themes = enrichment.Themes.Where(theme => seen.Add(theme)).ToList();
+
+            var kind = string.Equals(document.Kind, "Series", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(document.Kind, "Episode", StringComparison.OrdinalIgnoreCase)
+                    ? "television"
+                    : "a film";
+
+            var decade = EraTokens.Decade(document.Year);
+            var text = new StringBuilder();
+
+            text.Append(kind);
+
+            if (document.Genres.Count > 0)
+            {
+                text.Append(' ').Append(string.Join(", ", document.Genres).ToLowerInvariant());
+            }
+
+            if (decade.Length > 0)
+            {
+                text.Append(" from the ").Append(decade);
+            }
+
+            if (themes.Count > 0)
+            {
+                text.Append(". It is about ").Append(string.Join(", ", themes)).Append('.');
+            }
+
+            // Tried and rejected: repeating the tone words alone at the end, to pull
+            // the row's centre further towards feeling. It works, and it doubles the
+            // length — and this row's entire advantage over the document row is that
+            // it is short. A test holds it under two hundred characters for that
+            // reason, and being right about the trade is worth more than being
+            // slightly better at one kind of query.
+
+            return text.ToString();
         }
     }
 }

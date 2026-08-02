@@ -127,6 +127,30 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public ThinkingMode EnrichmentThinking { get; set; } = ThinkingMode.Inherit;
 
         /// <summary>
+        /// The profile that enriches episodes, or empty to use the enrichment profile.
+        /// </summary>
+        /// <remarks>
+        /// Episodes are a different job from films and shows, and mostly a worse one.
+        /// A model that knows every film ever made has still never heard of
+        /// "Sow, Do You Like Them Apples" — measured on this library, 45% of episodes
+        /// came back unknown — and there can be twenty times as many of them. Paying
+        /// a flagship model per episode to say "I do not know this" is the most
+        /// expensive way to learn nothing.
+        /// <para>
+        /// So they get their own profile: something cheap and fast for the thousands,
+        /// while films and shows keep whatever is worth paying for.
+        /// </para>
+        /// </remarks>
+        public string EpisodeModelProfileId { get; set; } = string.Empty;
+
+        /// <summary>Whether enriching episodes may think.</summary>
+        /// <remarks>
+        /// Separate from the enrichment setting for the same reason: thinking about a
+        /// film once is cheap, and thinking about five thousand episodes is not.
+        /// </remarks>
+        public ThinkingMode EpisodeThinking { get; set; } = ThinkingMode.Inherit;
+
+        /// <summary>
         /// Gets or sets the output-token cap applied to a single model call.
         /// </summary>
         /// <remarks>
@@ -177,6 +201,23 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// directly — it is the first lever to turn down on a large library.
         /// </remarks>
         public int MaxAsksPerItem { get; set; } = 10;
+
+        /// <summary>How many themes to ask for per item.</summary>
+        /// <remarks>
+        /// Themes are the only place a mood query has to land. They carry both what an
+        /// item is about and what watching it feels like, and the Vibe row is built
+        /// from them alone — so this is the dial for "something dark and twisted"
+        /// working at all.
+        /// </remarks>
+        public int MaxThemesPerItem { get; set; } = 8;
+
+        /// <summary>How many moments to ask for per item.</summary>
+        /// <remarks>
+        /// The specific images people actually remember — the dog, the spinning top.
+        /// Deliberately never sent to the re-ranker: they are the field most likely to
+        /// be a twist stated plainly, and they exist to be searched, not shown.
+        /// </remarks>
+        public int MaxMomentsPerItem { get; set; } = 6;
 
         /// <summary>
         /// Gets or sets how many texts are embedded per request.

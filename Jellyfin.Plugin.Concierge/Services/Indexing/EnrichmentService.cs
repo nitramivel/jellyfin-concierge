@@ -109,14 +109,59 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             // from it. Normalizing per batch would mint a fresh id for a repaired
             // profile each time and report one run as many models.
             var normalized = ModelProfiles.Normalize(config);
-            var profile = ModelProfiles.Resolve(normalized, config.EnrichmentModelProfileId);
+
+            /* Episodes are a different job, so they can be a different model.
+             *
+             * A model that knows every film ever made has still never heard of "Sow,
+             * Do You Like Them Apples" — 45% of episodes came back unknown on this
+             * library — and there are twenty times as many of them. Paying a flagship
+             * model per episode to say "I do not know this" is the most expensive way
+             * to learn nothing.
+             *
+             * Batched separately rather than interleaved: one batch is one call to one
+             * model, so a mixed batch would have to pick, and grouping keeps the
+             * per-model costs in the run log honestly separated. */
+            var showProfile = ModelProfiles.Resolve(normalized, config.EnrichmentModelProfileId);
+            var episodeProfile = string.IsNullOrWhiteSpace(config.EpisodeModelProfileId)
+                ? showProfile
+                : ModelProfiles.Resolve(normalized, config.EpisodeModelProfileId);
+
+            var batchSize = Math.Max(1, config.EnrichmentBatchSize);
+
+            var groups = documents
+                .GroupBy(d => d.SeriesId is not null)
+                .OrderBy(g => g.Key)
+                .Select(g => (
+                    IsEpisode: g.Key,
+                    Profile: g.Key ? episodeProfile : showProfile,
+                    Pass: g.Key ? ThinkingPass.Episode : ThinkingPass.Enrichment,
+                    Batches: g.Chunk(batchSize).ToList()))
+                .ToList();
+
+            var batches = groups.SelectMany(g => g.Batches).ToList();
+
+            // The plan of which model runs which group, before a penny is spent.
+            foreach (var group in groups)
+            {
+                runLog.Step(
+                    "enrichment.group",
+                    $"{group.Batches.Sum(x => x.Length)} {(group.IsEpisode ? "episode" : "film and show")}"
+                        + $"(s) on {group.Profile.Model}",
+                    new Dictionary<string, object?>
+                    {
+                        ["episodes"] = group.IsEpisode,
+                        ["model"] = group.Profile.Model,
+                        ["provider"] = group.Profile.Provider.ToString(),
+                        ["batches"] = group.Batches.Count,
+                        ["thinking"] = ThinkingPolicy.Explain(config, group.Pass, group.Profile),
+                    });
+            }
+
+            var profile = showProfile;
             var provider = _providerFactory.Create(
                 profile,
                 ThinkingPolicy.For(config, ThinkingPass.Enrichment, profile));
             var pricing = RunPricing.From(profile);
-
-            var batchSize = Math.Max(1, config.EnrichmentBatchSize);
-            var batches = documents.Chunk(batchSize).ToList();
 
             runLog.Step(
                 "enrichment.started",
@@ -142,12 +187,23 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
             try
             {
-                for (var i = 0; i < batches.Count; i++)
+                var i = -1;
+
+                foreach (var group in groups)
                 {
+                    var groupProvider = _providerFactory.Create(
+                        group.Profile,
+                        ThinkingPolicy.For(config, group.Pass, group.Profile));
+                    var groupPricing = RunPricing.From(group.Profile);
+
+                foreach (var batch in group.Batches)
+                {
+                    i++;
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var outcome = await EnrichBatchAsync(
-                            batches[i], i + 1, provider, profile, pricing, config, runLog, cancellationToken)
+                            batch, i + 1, groupProvider, group.Profile, groupPricing,
+                            config, runLog, cancellationToken)
                         .ConfigureAwait(false);
 
                     results.AddRange(outcome.Results);
@@ -174,7 +230,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                             // library-wide count, so sending a batch size under it
                             // rewrote "42 items" to "10" on the first batch and left
                             // it there for the rest of the build.
-                            ["batchSize"] = batches[i].Length,
+                            ["batchSize"] = batch.Length,
+                            ["model"] = group.Profile.Model,
 
                             // Cumulative, not this batch's. This is the key the
                             // progress panel reads, and it is the only thing that
@@ -209,6 +266,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                         await CheckpointAsync(checkpointAsync, results, runLog, i + 1, batches.Count, cancellationToken)
                             .ConfigureAwait(false);
                     }
+                }
                 }
             }
             catch (OperationCanceledException)
@@ -297,7 +355,11 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             // item list, so there is nothing a later call could read back, and marking
             // it anyway would pay the cache-write premium for a hit that cannot happen.
             var prompt = EnrichmentPromptBuilder.BuildItemList(batch)
-                + EnrichmentPromptBuilder.BuildInstruction(batch.Length, config.MaxAsksPerItem);
+                + EnrichmentPromptBuilder.BuildInstruction(
+                    batch.Length,
+                    config.MaxAsksPerItem,
+                    config.MaxThemesPerItem,
+                    config.MaxMomentsPerItem);
 
             var request = new LlmRequest(
                 EnrichmentPromptBuilder.SystemPrompt,

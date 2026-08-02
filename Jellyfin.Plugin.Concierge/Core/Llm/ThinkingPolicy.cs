@@ -14,6 +14,12 @@ namespace Jellyfin.Plugin.Concierge.Core.Llm
 
         /// <summary>Writes what an item is about. Index build only, once per item.</summary>
         Enrichment = 2,
+
+        /// <summary>
+        /// The same job on episodes, which is a different trade: there are twenty
+        /// times as many and the model knows far fewer of them.
+        /// </summary>
+        Episode = 3,
     }
 
     /// <summary>
@@ -65,6 +71,7 @@ namespace Jellyfin.Plugin.Concierge.Core.Llm
                 ThinkingPass.Plan => config.PlanThinking,
                 ThinkingPass.Rerank => config.RerankThinking,
                 ThinkingPass.Enrichment => config.EnrichmentThinking,
+                ThinkingPass.Episode => config.EpisodeThinking,
                 _ => ThinkingMode.Inherit,
             };
 
@@ -106,6 +113,7 @@ namespace Jellyfin.Plugin.Concierge.Core.Llm
                 ThinkingPass.Plan => config.PlanThinking,
                 ThinkingPass.Rerank => config.RerankThinking,
                 ThinkingPass.Enrichment => config.EnrichmentThinking,
+                ThinkingPass.Episode => config.EpisodeThinking,
                 _ => ThinkingMode.Inherit,
             };
 

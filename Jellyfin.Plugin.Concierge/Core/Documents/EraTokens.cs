@@ -56,6 +56,21 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
         /// </summary>
         /// <param name="year">The production year, or null.</param>
         /// <returns>Space-separated tokens, or empty when there is no year.</returns>
+        /// <summary>
+        /// The decade a year falls in, spelled the way people say it.
+        /// </summary>
+        /// <param name="year">The year, or null.</param>
+        /// <returns>e.g. "1990s", or empty when there is no usable year.</returns>
+        /// <remarks>
+        /// Its own method rather than the second word of <see cref="Render"/>. A
+        /// caller picking a token out of that string by position is a caller that
+        /// breaks silently the first time the order changes.
+        /// </remarks>
+        public static string Decade(int? year)
+            => year is { } value && value >= 1880 && value <= 2200
+                ? (value / 10 * 10).ToString(CultureInfo.InvariantCulture) + "s"
+                : string.Empty;
+
         public static string Render(int? year)
         {
             if (year is not { } value || value < 1880 || value > 2200)

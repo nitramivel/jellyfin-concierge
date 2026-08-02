@@ -20,6 +20,12 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
         /// </remarks>
         public const int DefaultAsksPerItem = 10;
 
+        /// <summary>How many themes to ask for per item.</summary>
+        public const int DefaultThemesPerItem = 8;
+
+        /// <summary>How many moments to ask for per item.</summary>
+        public const int DefaultMomentsPerItem = 6;
+
         /// <summary>
         /// The system prompt.
         /// </summary>
@@ -61,9 +67,11 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
 
             - premise: one or two sentences saying what actually happens — what the
               overview should have said. Plain, concrete, no blurb language.
-            - moments: 3-6 specific images or scenes people remember. The dog. The
+            - moments: specific images or scenes people remember, as many as the
+              instruction below asks for. The dog. The
               chestburster. The bullet-time. Concrete nouns, not summary.
-            - themes: 4-8 short phrases covering BOTH what it is about (identity,
+            - themes: short phrases, as many as the instruction below asks for,
+              covering BOTH what it is about (identity,
               surveillance, grief) AND what watching it feels like (bleak, warm,
               tense, silly, nostalgic, dark, twisted, comforting). The second kind is
               what someone means when they ask for "something dark and twisted" or "a
@@ -130,16 +138,21 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
         /// <param name="count">How many items are in the batch.</param>
         /// <param name="asksPerItem">How many phrasings to ask for.</param>
         /// <returns>The trailing instruction.</returns>
-        public static string BuildInstruction(int count, int asksPerItem = DefaultAsksPerItem)
+        public static string BuildInstruction(
+            int count,
+            int asksPerItem = DefaultAsksPerItem,
+            int themesPerItem = DefaultThemesPerItem,
+            int momentsPerItem = DefaultMomentsPerItem)
         {
             var body = string.Create(
                 CultureInfo.InvariantCulture,
                 $"""
 
                 Return one object per item, using the integer index above as "i".
-                Cover all {count} items, in order. Give {asksPerItem} entries in "asks"
-                for items you know — that number, not fewer — and an empty list for
-                those you do not.
+                Cover all {count} items, in order. For items you know, give
+                {asksPerItem} entries in "asks", {themesPerItem} in "themes" and
+                {momentsPerItem} in "moments" — those numbers, not fewer. For items you
+                do not know, leave every list empty.
 
                 Respond with JSON only:
                 """);

@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.26.0.0",
-        "changelog": "Episodes live under their show in the Library tab and expand to the same detail as a film. They also carry their series name everywhere it is read \u2014 an episode was called just \"The Wand\" in the log, in the prompt asking a model to describe it, and in search, where it made a show findable only through its own row. Phrasings per item can go to 16 and the prompt now honours the number instead of contradicting it. The spoiler flag is shown on the item rather than only tagged in the list. A running build can be stopped from the settings page. Pick which subtitle track a film's dialogue comes from. The Concierge toggle is an icon in the search box. Folds in 0.19.0.0 through 0.25.0.0.",
+        "version": "0.27.0.0",
+        "changelog": "Themes and moments per item are settings now, like phrasings \u2014 themes especially, since the Vibe row is built from them alone and they are the only place a mood query has to land. Episodes can run on their own model and their own thinking mode: 45% of them come back unknown on this library and there are twenty times as many, so paying a flagship model per episode to say it does not know is the most expensive way to learn nothing. The Vibe row now reads as a sentence with its decade in it rather than a comma dump. Episodes live under their show in the Library tab, carry their series name everywhere, and a running build can be stopped from the settings page. Folds in 0.19.0.0 through 0.26.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.26.0.0/concierge_0.26.0.0.zip",
-        "checksum": "d2e02f36b8c9bcd135a4bc80a662cebe",
-        "timestamp": "2026-08-02T23:28:36Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.27.0.0/concierge_0.27.0.0.zip",
+        "checksum": "0a8e147ebac1d0d56d5f2fb8501cd148",
+        "timestamp": "2026-08-02T23:50:54Z"
       },
       {
         "version": "0.18.0.0",
