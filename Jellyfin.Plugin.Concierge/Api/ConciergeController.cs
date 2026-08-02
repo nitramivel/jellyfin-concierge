@@ -422,6 +422,8 @@ namespace Jellyfin.Plugin.Concierge.Api
             }
 
             var enrichment = document.Enrichment;
+            var stored = await _store.LoadEnrichmentAsync(cancellationToken).ConfigureAwait(false);
+            var provenance = Provenance(stored.GetValueOrDefault(itemId));
 
             return Ok(new LibraryItemDetail(
                 Summarize(document, rows, cues),
@@ -446,7 +448,36 @@ namespace Jellyfin.Plugin.Concierge.Api
                     .ToList(),
                 track is null ? [] : track.Cues.Take(12).Select(c => c.Text).ToList(),
                 track?.SourcePath ?? string.Empty,
-                track?.ExtractedUtc));
+                track?.ExtractedUtc,
+                provenance));
+        }
+
+        /// <summary>
+        /// Which build wrote an item's enrichment, and whether that build can still be
+        /// opened.
+        /// </summary>
+        /// <remarks>
+        /// An empty run id means the entry predates the tie. Reported as null rather
+        /// than as a run that does not exist, because "we did not record this" and
+        /// "the run was deleted" are different facts and only one of them is a gap in
+        /// the log.
+        /// </remarks>
+        private ItemProvenance? Provenance(Core.Documents.StoredEnrichment? stored)
+        {
+            if (stored is null)
+            {
+                return null;
+            }
+
+            var known = stored.RunId != Guid.Empty;
+
+            return new ItemProvenance(
+                known ? stored.RunId : null,
+                known && _indexRuns.ReadRaw(stored.RunId) is not null,
+                stored.GeneratedUtc,
+                stored.Model,
+                stored.CostUsd,
+                stored.SourceHash);
         }
 
         private static LibraryItemSummary Summarize(

@@ -14,6 +14,78 @@ using Xunit;
 namespace Jellyfin.Plugin.Concierge.Tests
 {
     /// <summary>
+    /// The tie between an item and the build that wrote it.
+    /// </summary>
+    /// <remarks>
+    /// Recorded on the enrichment store rather than left to the run files, because
+    /// those are pruned: after a dozen builds the run that produced an item is gone.
+    /// The risky half is backward compatibility — an <c>enrichment.json</c> written
+    /// before the tie existed has to keep loading, and has to report honestly that it
+    /// does not know rather than naming a run that never wrote it.
+    /// </remarks>
+    public class EnrichmentProvenanceTests
+    {
+        private static readonly JsonSerializerOptions Json =
+            new() { PropertyNameCaseInsensitive = true };
+
+        [Fact]
+        public void AnEntryWrittenBeforeTheTieExistedStillLoads()
+        {
+            // Exactly the shape already on the owner's server.
+            const string Old = """
+                {"ItemId":"e910fc14-06cb-2b97-17a4-1c6b70d67265",
+                 "SourceHash":"abc123",
+                 "Enrichment":{"Premise":"A clerk.","Moments":[],"Themes":["a"],"Asks":["b"],"Spoiler":false},
+                 "GeneratedUtc":"2026-08-01T05:59:00Z"}
+                """;
+
+            var stored = JsonSerializer.Deserialize<Jellyfin.Plugin.Concierge.Core.Documents.StoredEnrichment>(
+                Old, Json);
+
+            Assert.NotNull(stored);
+            Assert.Equal("A clerk.", stored!.Enrichment.Premise);
+
+            // Unknown, and shaped so a caller can tell unknown from deleted.
+            Assert.Equal(Guid.Empty, stored.RunId);
+            Assert.Equal(string.Empty, stored.Model);
+            Assert.Equal(0m, stored.CostUsd);
+        }
+
+        [Fact]
+        public void ANewEntryCarriesTheBuildThatWroteIt()
+        {
+            var run = Guid.NewGuid();
+            var stored = new Jellyfin.Plugin.Concierge.Core.Documents.StoredEnrichment(
+                Guid.NewGuid(),
+                "hash",
+                new Jellyfin.Plugin.Concierge.Core.Documents.Enrichment("p", [], [], ["ask"], false),
+                DateTime.UtcNow,
+                run,
+                "claude-opus-5",
+                0.0133m);
+
+            var round = JsonSerializer.Deserialize<Jellyfin.Plugin.Concierge.Core.Documents.StoredEnrichment>(
+                JsonSerializer.Serialize(stored), Json);
+
+            Assert.Equal(run, round!.RunId);
+            Assert.Equal("claude-opus-5", round.Model);
+            Assert.Equal(0.0133m, round.CostUsd);
+        }
+
+        /// <summary>
+        /// A run's items name themselves, so a build can link to what it produced.
+        /// </summary>
+        [Fact]
+        public void ARunsItemsCarryTheirItemId()
+        {
+            var id = Guid.NewGuid();
+            var record = new RunItemRecord(id, "Hereditary", 2018, 1, "enriched", 180, 3, 5, 8, true, 0.01m);
+
+            Assert.Equal(id, record.ItemId);
+        }
+    }
+
+    /// <summary>
     /// The run log, against the run that prompted it.
     /// </summary>
     /// <remarks>
@@ -120,7 +192,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 for (var i = 0; i < 10; i++)
                 {
                     log.ItemEnriched(new RunItemRecord(
-                        $"Film {batch}-{i}", 2020, batch, "enriched", 180, 3, 4, 8, false, 0.0133m));
+                        Guid.NewGuid(), $"Film {batch}-{i}", 2020, batch, "enriched", 180, 3, 4, 8, false, 0.0133m));
                 }
             }
 
@@ -154,8 +226,10 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 "enrichment", 1, 2, TimeSpan.FromSeconds(8), Request(), Result(100, 200),
                 "ok", null, "gpt-5.6-luna", "OpenAi", Luna);
 
-            log.ItemEnriched(new RunItemRecord("A", 1999, 1, "enriched", 120, 2, 3, 6, false, 0.001m));
-            log.ItemEnriched(new RunItemRecord("B", 2001, 1, "enriched", 130, 2, 3, 6, false, 0.001m));
+            log.ItemEnriched(new RunItemRecord(
+                        Guid.NewGuid(), "A", 1999, 1, "enriched", 120, 2, 3, 6, false, 0.001m));
+            log.ItemEnriched(new RunItemRecord(
+                        Guid.NewGuid(), "B", 2001, 1, "enriched", 130, 2, 3, 6, false, 0.001m));
             log.Complete();
 
             var run = await Read(store);
@@ -180,8 +254,10 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 "enrichment", 1, 2, TimeSpan.FromSeconds(8), Request(), Result(100, 200),
                 "ok", null, "gpt-5.6-luna", "OpenAi", Luna);
 
-            log.ItemEnriched(new RunItemRecord("Hereditary", 2018, 1, "enriched", 180, 3, 5, 8, true, 0.002m));
-            log.ItemEnriched(new RunItemRecord("Backrooms", 2026, 1, "unknown-to-model", 0, 0, 0, 0, false, 0.002m));
+            log.ItemEnriched(new RunItemRecord(
+                        Guid.NewGuid(), "Hereditary", 2018, 1, "enriched", 180, 3, 5, 8, true, 0.002m));
+            log.ItemEnriched(new RunItemRecord(
+                        Guid.NewGuid(), "Backrooms", 2026, 1, "unknown-to-model", 0, 0, 0, 0, false, 0.002m));
             log.Complete();
 
             var run = await Read(store);
@@ -227,7 +303,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 for (var i = 0; i < 10; i++)
                 {
                     log.ItemEnriched(new RunItemRecord(
-                        $"F{batch}-{i}", 2020, batch, "enriched", 180, 3, 4, 8, false, 0.013m));
+                        Guid.NewGuid(), $"F{batch}-{i}", 2020, batch, "enriched", 180, 3, 4, 8, false, 0.013m));
                 }
             }
 

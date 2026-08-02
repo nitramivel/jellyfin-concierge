@@ -399,7 +399,13 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 }
 
                 results.Add(new StoredEnrichment(
-                    batch[i].ItemId, DocumentHash.Of(batch[i]), enrichment, DateTime.UtcNow));
+                    batch[i].ItemId,
+                    DocumentHash.Of(batch[i]),
+                    enrichment,
+                    DateTime.UtcNow,
+                    runLog.RunId,
+                    provider.ModelId,
+                    decimal.Round(share, 6)));
             }
 
             runLog.LlmCall(
@@ -428,6 +434,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             decimal share)
         {
             return new RunItemRecord(
+                document.ItemId,
                 document.Title,
                 document.Year,
                 batch,

@@ -58,6 +58,7 @@ namespace Jellyfin.Plugin.Concierge.Api
     /// <param name="QuoteSample">A few extracted lines, so the extraction can be eyeballed.</param>
     /// <param name="QuoteSourcePath">Where the dialogue came from.</param>
     /// <param name="QuoteExtractedUtc">When it was extracted.</param>
+    /// <param name="Provenance">Which build wrote this item's enrichment, or null.</param>
     public sealed record LibraryItemDetail(
         LibraryItemSummary Item,
         string OriginalTitle,
@@ -74,7 +75,34 @@ namespace Jellyfin.Plugin.Concierge.Api
         IReadOnlyList<LibraryVectorRow> VectorRows,
         IReadOnlyList<string> QuoteSample,
         string QuoteSourcePath,
-        DateTime? QuoteExtractedUtc);
+        DateTime? QuoteExtractedUtc,
+        ItemProvenance? Provenance);
+
+    /// <summary>
+    /// Which build produced an item's enrichment.
+    /// </summary>
+    /// <remarks>
+    /// Read off the enrichment store rather than the run files, which are pruned. An
+    /// item enriched a dozen builds ago still knows what wrote it long after that run
+    /// has been deleted — but <see cref="RunAvailable"/> says whether the run itself
+    /// can still be opened.
+    /// </remarks>
+    /// <param name="RunId">The build, or null for anything written before the tie existed.</param>
+    /// <param name="RunAvailable">Whether that run's log is still on disk.</param>
+    /// <param name="GeneratedUtc">When this answer was written.</param>
+    /// <param name="Model">The model that wrote it.</param>
+    /// <param name="CostUsd">Its share of the batch it was enriched in.</param>
+    /// <param name="SourceHash">
+    /// The fingerprint of the item as it was then. A mismatch against the item now is
+    /// why a rebuild would re-enrich it.
+    /// </param>
+    public sealed record ItemProvenance(
+        Guid? RunId,
+        bool RunAvailable,
+        DateTime GeneratedUtc,
+        string Model,
+        decimal CostUsd,
+        string SourceHash);
 
     /// <summary>One embedded row.</summary>
     /// <param name="Kind">Document, Vibe or Ask.</param>

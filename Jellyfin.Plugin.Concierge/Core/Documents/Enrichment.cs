@@ -114,9 +114,27 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
     /// <param name="SourceHash">The document hash this was generated from.</param>
     /// <param name="Enrichment">The enrichment itself, possibly empty.</param>
     /// <param name="GeneratedUtc">When it was generated.</param>
+    /// <param name="RunId">
+    /// The index build that produced this, or <see cref="Guid.Empty"/> for anything
+    /// written before the tie existed.
+    /// </param>
+    /// <param name="Model">The model that wrote it, or empty when unrecorded.</param>
+    /// <param name="CostUsd">Its share of the batch it was enriched in.</param>
     public sealed record StoredEnrichment(
         Guid ItemId,
         string SourceHash,
         Enrichment Enrichment,
-        DateTime GeneratedUtc);
+        DateTime GeneratedUtc,
+
+        /* Recorded here rather than left to the run files, because those are pruned:
+         * after a dozen builds the run that produced an item is gone and the tie with
+         * it. This is the durable half — what wrote this answer, when, and for how
+         * much — and it survives the log it came from.
+         *
+         * Optional so that an enrichment.json written before this existed still
+         * deserializes. Those entries report honestly as unknown rather than
+         * inventing a run. */
+        Guid RunId = default,
+        string Model = "",
+        decimal CostUsd = 0m);
 }

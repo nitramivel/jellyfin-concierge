@@ -10,11 +10,11 @@
     "versions": [
       {
         "version": "0.22.0.0",
-        "changelog": "A Library tab: every indexed item and everything Concierge holds for it \u2014 premise, themes, moments, asks, the exact text embedded for each vector row, and a sample of extracted dialogue. Filter for the items with nothing to search on. Index builds now show a live progress bar above the tabs while they run, saying what they have spent, which models are running them, and what finishing will cost and take. Run logs record what each item got back and break cost down by model with the rates billed. Folds in 0.19.0.0 through 0.21.0.0.",
+        "changelog": "A Library tab: every indexed item and everything Concierge holds for it \u2014 premise, themes, moments, asks, the exact text embedded for each vector row, extracted dialogue, and which build wrote it, at what cost, on which model. Build history is expandable: what each model charged and at what rates, where a cancelled run was heading, every step, and every item it touched sorted emptiest first. Index builds show a live progress bar above the tabs while they run. Folds in 0.19.0.0 through 0.21.0.0.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.22.0.0/concierge_0.22.0.0.zip",
-        "checksum": "b7a80c553790b1291b27ecfc7ccd33a9",
-        "timestamp": "2026-08-02T21:10:09Z"
+        "checksum": "bbfa8bd1adffeea89299157934cfd8b6",
+        "timestamp": "2026-08-02T21:28:12Z"
       },
       {
         "version": "0.18.0.0",

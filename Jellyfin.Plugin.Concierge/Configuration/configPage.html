@@ -85,6 +85,9 @@
                     padding: 0.55em 0; border-bottom: 1px solid rgba(127,127,127,0.18);
                 }
                 .conciergeRunMeta { font-size: 0.87em; opacity: 0.72; margin-top: 0.15em; }
+                .conciergeRunHead { cursor: pointer; }
+                .conciergeRunHead:hover { opacity: 0.85; }
+                .conciergeRunDetail:empty { display: none; }
                 .conciergeBad { color: #e8a33d; }
 
                 /* One long scroll is how "which model runs which pass" ended up
@@ -1667,9 +1670,104 @@
                     meta += '<br/><span class="conciergeBad">' + escapeHtml(run.Error) + '</span>';
                 }
 
-                return '<div class="conciergeRun' + (bad ? ' conciergeBad' : '') + '">'
-                    + '<div>' + head + '</div>'
-                    + '<div class="conciergeRunMeta">' + meta + '</div></div>';
+                return '<div class="conciergeRun' + (bad ? ' conciergeBad' : '')
+                    + '" data-run="' + escapeHtml(run.RunId) + '">'
+                    + '<div class="conciergeRunHead">' + head
+                    + ' <span class="conciergeRunMeta">&#9662;</span></div>'
+                    + '<div class="conciergeRunMeta">' + meta + '</div>'
+                    + '<div class="conciergeRunDetail"></div></div>';
+            }
+
+            /* One run, opened in place.
+             *
+             * The whole document was already written to disk and served by
+             * Index/Runs/{id}; nothing read it. Everything below is a rendering of
+             * what was always there — which is why the 2 August rebuild took reading
+             * four files by hand to explain. */
+            function openRun(runId) {
+                var row = page.querySelector('.conciergeRun[data-run="' + runId + '"]');
+                if (!row) {
+                    return;
+                }
+
+                var slot = row.querySelector('.conciergeRunDetail');
+
+                if (slot.innerHTML) {
+                    slot.innerHTML = '';
+                    return;
+                }
+
+                slot.innerHTML = '<div class="conciergeRunMeta">Loading&hellip;</div>';
+
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Index/Runs/' + runId),
+                    dataType: 'json'
+                }).then(function (d) {
+                    slot.innerHTML = runDetailHtml(d);
+                }, function () {
+                    slot.innerHTML = '<div class="conciergeBad">Could not read that build.</div>';
+                });
+            }
+
+            function runDetailHtml(d) {
+                var html = '<div class="conciergeDetail">';
+
+                if (d.ByModel && d.ByModel.length) {
+                    html += '<h4>What each model charged</h4>'
+                        + '<table style="width:100%;border-collapse:collapse;">';
+                    d.ByModel.forEach(function (m) {
+                        html += '<tr style="border-bottom:1px solid rgba(127,127,127,0.15);">'
+                            + '<td style="padding:0.25em 0;">' + escapeHtml(m.Model)
+                            + ' <span class="conciergeRunMeta">' + escapeHtml(m.Pass) + '</span></td>'
+                            + '<td style="padding:0.25em 0;text-align:right;" class="conciergeRunMeta">'
+                            + escapeHtml(String(m.Calls)) + ' calls · in $'
+                            + escapeHtml(String(m.InputCostPerMillion)) + '/M out $'
+                            + escapeHtml(String(m.OutputCostPerMillion)) + '/M</td>'
+                            + '<td style="padding:0.25em 0;text-align:right;font-variant-numeric:tabular-nums;">'
+                            + escapeHtml(money(m.CostUsd)) + '</td></tr>';
+                    });
+                    html += '</table>';
+                }
+
+                if (d.Projection) {
+                    html += '<h4>Where it was heading</h4><div class="conciergeRunMeta">'
+                        + escapeHtml(String(d.Projection.ItemsDone)) + ' done, '
+                        + escapeHtml(String(d.Projection.ItemsRemaining)) + ' left · '
+                        + '<strong>' + escapeHtml(money(d.Projection.ProjectedTotalCostUsd))
+                        + '</strong> and ' + escapeHtml(duration(Math.round(d.Projection.ProjectedTotalMs / 1000)))
+                        + ' to finish at this rate</div>';
+                }
+
+                if (d.Steps && d.Steps.length) {
+                    html += '<h4>Steps</h4>';
+                    d.Steps.forEach(function (s) {
+                        html += '<div class="conciergeRunMeta">'
+                            + escapeHtml(String(s.At).slice(11, 19)) + ' · <strong>'
+                            + escapeHtml(s.Step) + '</strong> — ' + escapeHtml(s.Message) + '</div>';
+                    });
+                }
+
+                // Worst first: an item that got nothing is the reason to open a build.
+                if (d.Items && d.Items.length) {
+                    var items = d.Items.slice().sort(function (a, b) { return a.Asks - b.Asks; });
+                    html += '<h4>Items <span class="conciergeRunMeta">'
+                        + escapeHtml(String(d.Items.length)) + ', emptiest first</span></h4>'
+                        + '<div class="conciergeLib">';
+                    items.forEach(function (i) {
+                        html += '<div class="conciergeLibRow" data-open-item="' + escapeHtml(i.ItemId) + '">'
+                            + '<span class="conciergeLibName">' + escapeHtml(i.Title) + '</span>'
+                            + '<span class="conciergeLibChips">'
+                            + '<span class="conciergeChip ' + (i.Asks ? 'is-good' : 'is-warn') + '">'
+                            + escapeHtml(String(i.Asks)) + ' asks</span>'
+                            + '<span class="conciergeChip">' + escapeHtml(i.Outcome) + '</span>'
+                            + '<span class="conciergeChip">' + escapeHtml(money(i.CostUsd)) + '</span>'
+                            + '</span></div>';
+                    });
+                    html += '</div>';
+                }
+
+                return html + '</div>';
             }
 
             function loadRuns() {
@@ -1685,6 +1783,14 @@
                     }
 
                     target.innerHTML = runs.map(describeRun).join('');
+
+                    Array.prototype.forEach.call(
+                        target.querySelectorAll('.conciergeRun[data-run]'),
+                        function (row) {
+                            row.querySelector('.conciergeRunHead').addEventListener('click', function () {
+                                openRun(row.getAttribute('data-run'));
+                            });
+                        });
                 }, function () {
                     page.querySelector('#ConciergeRuns').innerHTML = 'Could not read the build history.';
                 });
@@ -2116,12 +2222,45 @@
                             + escapeHtml(d.QuoteSample.join('\n')) + '</div>';
                     }
 
+                    // Where this answer came from. Tied through the enrichment store
+                    // rather than the run files, so it survives those being pruned —
+                    // and says so when the run itself is gone.
+                    if (d.Provenance) {
+                        var pv = d.Provenance;
+                        html += '<h4>Where this came from</h4><div class="conciergeRunMeta">'
+                            + escapeHtml(new Date(pv.GeneratedUtc).toLocaleString())
+                            + (pv.Model ? ' · ' + escapeHtml(pv.Model) : '')
+                            + (pv.CostUsd ? ' · ' + escapeHtml(money(pv.CostUsd)) : '')
+                            + '</div>';
+
+                        if (pv.RunId && pv.RunAvailable) {
+                            html += '<div style="margin-top:0.35em;">'
+                                + '<a href="#" class="conciergeOpenRun" data-run="' + escapeHtml(pv.RunId)
+                                + '">Open the build that wrote this &rarr;</a></div>';
+                        } else if (pv.RunId) {
+                            html += '<div class="conciergeRunMeta">Build ' + escapeHtml(pv.RunId.slice(0, 8))
+                                + ' has since been pruned.</div>';
+                        } else {
+                            html += '<div class="conciergeRunMeta">Written before builds were '
+                                + 'tied to items.</div>';
+                        }
+                    }
+
                     if (d.Overview) {
                         html += '<h4>Library overview <span class="conciergeRunMeta">not written by Concierge</span></h4>'
                             + '<div class="conciergeRowText">' + escapeHtml(d.Overview) + '</div>';
                     }
 
                     target.innerHTML = html + '</div>';
+
+                    var link = target.querySelector('.conciergeOpenRun');
+                    if (link) {
+                        link.addEventListener('click', function (e) {
+                            e.preventDefault();
+                            showTab(page, 'index');
+                            openRun(link.getAttribute('data-run'));
+                        });
+                    }
                 }, function () {
                     target.innerHTML = '<div class="conciergeDetail conciergeBad">Could not read that item.</div>';
                 });

@@ -90,6 +90,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
     /// figure is what makes two models comparable.
     /// </para>
     /// </remarks>
+    /// <param name="ItemId">The item, so a run can link back to what it produced.</param>
     /// <param name="Title">The item.</param>
     /// <param name="Year">Its year, when it has one.</param>
     /// <param name="Batch">Which batch it was in, 1-based.</param>
@@ -101,6 +102,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
     /// <param name="Spoiler">Whether the model flagged its own answer as spoiling something.</param>
     /// <param name="CostUsd">Its share of the batch.</param>
     public sealed record RunItemRecord(
+        Guid ItemId,
         string Title,
         int? Year,
         int Batch,
