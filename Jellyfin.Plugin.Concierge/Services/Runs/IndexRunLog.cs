@@ -186,7 +186,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         decimal CostUsd,
         string? Error,
         string Models,
-        decimal? ProjectedCostUsd);
+        decimal? ProjectedCostUsd,
+        long? ProjectedTotalMs);
 
     /// <summary>
     /// Opens run logs. One file per run, in their own directory.

@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.21.0.0",
+        "changelog": "The index build progress bar sits above the tabs while a build is running, updates every second, and says what it will cost and how long it will take to finish.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.21.0.0/concierge_0.21.0.0.zip",
+        "checksum": "113bbc48a622269d1d3cc500915236b7",
+        "timestamp": "2026-08-02T21:02:03Z"
+      },
+      {
         "version": "0.20.0.0",
         "changelog": "Rebuild the index on purpose from the Index tab, and see where the money went when you do. Run logs now record what each item got back (premise, themes, asks, or nothing at all), break the cost down by model with the rates each was billed at, and project what an unfinished run would have cost and taken. Folds in 0.19.0.0.",
         "targetAbi": "10.11.11.0",

@@ -175,7 +175,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
             // making somebody open the file to find it is how the last one went
             // unexplained for a day.
             string.Join(", ", d.ByModel.Select(m => m.Model).Distinct(StringComparer.Ordinal)),
-            d.Projection?.ProjectedTotalCostUsd);
+            d.Projection?.ProjectedTotalCostUsd,
+            d.Projection?.ProjectedTotalMs);
 
         /// <summary>
         /// Writes a run document, and prunes the oldest once there are too many.

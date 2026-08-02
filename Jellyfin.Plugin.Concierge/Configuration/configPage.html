@@ -28,7 +28,26 @@
                 .conciergeFill {
                     height: 100%; width: 0; border-radius: 999px;
                     background: linear-gradient(90deg, #00a4dc, #56cfe1);
-                    transition: width 500ms cubic-bezier(0.4, 0, 0.2, 1);
+                    transition: width 900ms cubic-bezier(0.4, 0, 0.2, 1);
+                }
+
+                /* A build runs for minutes and spends money, so it sits above the
+                   tabs rather than inside one — findable without remembering which
+                   tab it was on. The stripes move so a bar that has not advanced in
+                   a while still reads as working rather than stuck. */
+                .conciergeRunning { border-left: 3px solid #00a4dc; }
+                @keyframes conciergeCrawl { to { background-position: 28px 0; } }
+                .conciergeRunning .conciergeTrack {
+                    background-image: linear-gradient(115deg,
+                        rgba(255,255,255,0.10) 25%, transparent 25%, transparent 50%,
+                        rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.10) 75%,
+                        transparent 75%);
+                    background-size: 28px 28px;
+                    animation: conciergeCrawl 900ms linear infinite;
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .conciergeRunning .conciergeTrack { animation: none; }
+                    .conciergeFill { transition: none; }
                 }
                 .conciergeRun {
                     padding: 0.55em 0; border-bottom: 1px solid rgba(127,127,127,0.18);
@@ -89,6 +108,12 @@
                         <div style="margin-top:0.8em;">
                             <button is="emby-button" type="button" id="ConciergeRefreshStatus" class="raised">Refresh</button>
                         </div>
+                    </div>
+
+                    <div id="ConciergeRunning" class="conciergeEditor conciergeRunning hide">
+                        <div id="ConciergeRunningPhase"><strong>Building&hellip;</strong></div>
+                        <div class="conciergeTrack"><div id="ConciergeRunningFill" class="conciergeFill"></div></div>
+                        <div id="ConciergeRunningDetail" class="conciergeSectionNote" style="margin:0.6em 0 0 0;"></div>
                     </div>
 
                     <div class="conciergeTabs" role="tablist">
@@ -394,9 +419,19 @@
                             <span>Let models think by default</span>
                         </label>
                         <div class="fieldDescription checkboxFieldDescription">
-                            The starting point for any profile set to &ldquo;follow the global setting&rdquo;. Off by
-                            default: thinking counts against the same output cap as the answer, and a search box has
-                            about two and a half seconds before it feels broken.
+                            <strong>Yes, this affects live searches.</strong> It is the starting point for every chat
+                            pass whose profile is set to &ldquo;follow the global setting&rdquo; &mdash; plan and
+                            re-rank on every search, and enrichment during an index build.
+                            <br />
+                            Off by default, and search is why: re-rank latency is the tokens the model writes, and
+                            thinking is tokens. Measured here, it was <strong>39% of everything generated</strong> on
+                            an install that had this box unticked &mdash; because until 0.12.0.0 the setting was
+                            silently ignored on OpenAI. It works on all three providers now.
+                            <br />
+                            The trade is not the same for every pass. Nobody is waiting on enrichment and its quality
+                            is permanent, so thinking there may well be worth it; nobody wants it on a re-rank. If you
+                            want both, leave this off and set <em>Thinking</em> to &ldquo;on&rdquo; on a profile you
+                            point the enrichment pass at.
                         </div>
                     </div>
 
@@ -698,12 +733,6 @@
                     <div class="conciergeSectionNote">
                         What each build did and what it cost. Enrichment saves every few batches, so stopping a build
                         keeps everything already paid for and the next one resumes rather than starting over.
-                    </div>
-
-                    <div id="ConciergeRunning" class="conciergeEditor hide">
-                        <div id="ConciergeRunningPhase"><strong>Building&hellip;</strong></div>
-                        <div class="conciergeTrack"><div id="ConciergeRunningFill" class="conciergeFill"></div></div>
-                        <div id="ConciergeRunningDetail" class="conciergeSectionNote" style="margin:0.6em 0 0 0;"></div>
                     </div>
 
                     <div style="margin-top:0.8em;">
@@ -1633,17 +1662,72 @@
                         '<strong>' + escapeHtml(run.Phase || 'working') + '</strong> — '
                         + escapeHtml(String(Math.round(run.Percent))) + '%';
                     page.querySelector('#ConciergeRunningFill').style.width = Math.round(run.Percent) + '%';
-                    page.querySelector('#ConciergeRunningDetail').innerHTML =
-                        escapeHtml(String(run.ItemsEnriched)) + ' enriched so far · '
-                        + escapeHtml(money(run.CostUsd)) + ' spent';
+                    page.querySelector('#ConciergeRunningDetail').innerHTML = runningDetail(run);
                 }, function () {
                     stopPolling();
                 });
             }
 
+            /* What a build is doing, while it does it.
+             *
+             * A percentage alone does not answer the question somebody watching a
+             * build actually has, which is whether to let it finish. The 2 August
+             * rebuild would have been stopped in its first minute if the panel had
+             * said "claude-opus-5" and "$3.59 to finish" instead of "11%". */
+            function runningDetail(run) {
+                var parts = [escapeHtml(String(run.ItemsEnriched)) + ' enriched'];
+
+                if (run.ItemsIndexed) {
+                    parts[0] += ' of ' + escapeHtml(String(run.ItemsIndexed));
+                }
+
+                parts.push(escapeHtml(money(run.CostUsd)) + ' spent');
+
+                var elapsed = Math.round((Date.now() - new Date(run.StartedUtc)) / 1000);
+                if (elapsed > 0) {
+                    parts.push(escapeHtml(duration(elapsed)) + ' elapsed');
+                }
+
+                var line = parts.join(' · ');
+
+                // The two numbers worth stopping for.
+                if (run.ProjectedCostUsd || run.ProjectedTotalMs) {
+                    var ahead = [];
+                    if (run.ProjectedCostUsd) {
+                        ahead.push('<strong>' + escapeHtml(money(run.ProjectedCostUsd)) + '</strong>');
+                    }
+
+                    if (run.ProjectedTotalMs) {
+                        ahead.push(escapeHtml(duration(Math.round(run.ProjectedTotalMs / 1000))));
+                    }
+
+                    line += '<br/>' + ahead.join(' and ') + ' to finish at this rate';
+                }
+
+                if (run.Models) {
+                    line += '<br/>' + escapeHtml(run.Models);
+                }
+
+                return line;
+            }
+
+            function duration(seconds) {
+                if (seconds < 60) {
+                    return seconds + 's';
+                }
+
+                var minutes = Math.floor(seconds / 60);
+                return minutes < 60
+                    ? minutes + 'm ' + (seconds % 60) + 's'
+                    : Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm';
+            }
+
             function startPolling() {
                 if (pollTimer === null) {
-                    pollTimer = setInterval(pollCurrent, 2500);
+                    // Once a second. The endpoint reads the run out of memory, so this
+                    // is a round trip and nothing else, and a bar that moves once every
+                    // two and a half seconds reads as a bar that has stopped.
+                    pollTimer = setInterval(pollCurrent, 1000);
                 }
             }
 
