@@ -10,11 +10,11 @@
     "versions": [
       {
         "version": "0.26.0.0",
-        "changelog": "Episodes live under their show in the Library tab and expand to the same detail as anything else, and they carry their series name everywhere it is read.",
+        "changelog": "Episodes live under their show in the Library tab and expand to the same detail as a film. They also carry their series name everywhere it is read \u2014 an episode was called just \"The Wand\" in the log, in the prompt asking a model to describe it, and in search, where it made a show findable only through its own row. Phrasings per item can go to 16 and the prompt now honours the number instead of contradicting it. The spoiler flag is shown on the item rather than only tagged in the list. A running build can be stopped from the settings page. Pick which subtitle track a film's dialogue comes from. The Concierge toggle is an icon in the search box. Folds in 0.19.0.0 through 0.25.0.0.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.26.0.0/concierge_0.26.0.0.zip",
-        "checksum": "33695a849614bfa04a7e80f04a1d3047",
-        "timestamp": "2026-08-02T23:24:19Z"
+        "checksum": "d2e02f36b8c9bcd135a4bc80a662cebe",
+        "timestamp": "2026-08-02T23:28:36Z"
       },
       {
         "version": "0.18.0.0",

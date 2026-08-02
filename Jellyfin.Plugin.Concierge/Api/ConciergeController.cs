@@ -303,6 +303,53 @@ namespace Jellyfin.Plugin.Concierge.Api
         }
 
         /// <summary>
+        /// Stops the index build that is running.
+        /// </summary>
+        /// <response code="202">Asked it to stop.</response>
+        /// <response code="409">Nothing is running.</response>
+        /// <response code="503">The task is not registered.</response>
+        /// <returns>Nothing.</returns>
+        /// <remarks>
+        /// A build can run for hours and spend real money, and until now the only way
+        /// to stop one was the Scheduled Tasks page — a different screen from the one
+        /// showing what it was costing. The button belongs beside the one that starts
+        /// it.
+        /// <para>
+        /// Cancelling is safe by construction: enrichment checkpoints, so everything
+        /// already paid for is saved and the next run resumes rather than restarting.
+        /// </para>
+        /// </remarks>
+        [HttpPost("Index/Cancel")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult CancelIndex()
+        {
+            var worker = _taskManager.ScheduledTasks.FirstOrDefault(w =>
+                string.Equals(w.ScheduledTask.Key, IndexBuildTask.TaskKey, StringComparison.Ordinal));
+
+            if (worker is null)
+            {
+                return StatusCode(
+                    StatusCodes.Status503ServiceUnavailable,
+                    "The Concierge index task is not registered.");
+            }
+
+            if (worker.State == TaskState.Idle)
+            {
+                return Conflict("No index build is running.");
+            }
+
+            _taskManager.Cancel(worker);
+            _logger.LogInformation(
+                "Concierge: the index build was stopped from the plugin settings. "
+                + "Enrichment checkpoints, so nothing already paid for is lost.");
+
+            return Accepted();
+        }
+
+        /// <summary>
         /// One build's whole record: every step, every model call with its tokens and
         /// cost, and every item that came out unenriched with the reason.
         /// </summary>

@@ -159,6 +159,12 @@
                         <div id="ConciergeRunningPhase"><strong>Building&hellip;</strong></div>
                         <div class="conciergeTrack"><div id="ConciergeRunningFill" class="conciergeFill"></div></div>
                         <div id="ConciergeRunningDetail" class="conciergeSectionNote" style="margin:0.6em 0 0 0;"></div>
+                        <div style="margin-top:0.7em;">
+                            <button is="emby-button" type="button" id="ConciergeStopBuild" class="raised">Stop this build</button>
+                            <span class="conciergeRunMeta" style="margin-left:0.6em;">
+                                Everything already paid for is saved; the next build resumes.
+                            </span>
+                        </div>
                     </div>
 
                     <div class="conciergeTabs" role="tablist">
@@ -2681,6 +2687,30 @@
             page.querySelector('#ConciergeLibraryFilter').addEventListener('input', renderLibrary);
             page.querySelector('#ConciergeLibraryShow').addEventListener('change', renderLibrary);
             page.querySelector('#ConciergeLibraryRefresh').addEventListener('click', loadLibrary);
+
+            /* Stop, beside the progress it is stopping.
+             *
+             * Safe by construction rather than by warning: enrichment checkpoints, so
+             * a cancelled build keeps everything it has already paid for and the next
+             * one resumes. That is worth saying on the button, because a stop control
+             * with no reassurance beside it is one nobody dares press. */
+            page.querySelector('#ConciergeStopBuild').addEventListener('click', function () {
+                var button = this;
+                button.disabled = true;
+
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('Concierge/Index/Cancel')
+                }).then(function () {
+                    Dashboard.alert('Stopping. Everything already enriched is saved.');
+                    pollCurrent();
+                    loadRuns();
+                    button.disabled = false;
+                }, function () {
+                    button.disabled = false;
+                    Dashboard.alert('Nothing is running.');
+                });
+            });
 
             page.querySelector('#ConciergeRefreshRuns').addEventListener('click', function () {
                 loadRuns();
