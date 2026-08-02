@@ -46,6 +46,8 @@
                 }
                 .conciergeDetail h4 { margin: 1em 0 0.3em; font-size: 0.95em; opacity: 0.8; }
                 .conciergeDetail h4:first-child { margin-top: 0; }
+                .conciergeEpDetail:empty { display: none; }
+                .conciergeEpDetail { padding-left: 1em; }
                 .conciergeDetail ul { margin: 0.2em 0 0 1.1em; padding: 0; }
                 .conciergeDetail li { margin: 0.15em 0; }
                 .conciergeRowText {
@@ -2190,6 +2192,10 @@
                     chips.push('<span class="conciergeChip is-good">' + item.Cues + ' lines</span>');
                 }
 
+                if (item.Episodes) {
+                    chips.push('<span class="conciergeChip">' + item.Episodes + ' episodes</span>');
+                }
+
                 if (item.Pending) {
                     chips.push('<span class="conciergeChip is-pending">not indexed</span>');
                 }
@@ -2261,8 +2267,15 @@
             function openLibraryItem(itemId) {
                 libraryOpenId = itemId;
                 renderLibrary();
+                showItemIn(page.querySelector('#ConciergeLibraryDetail'), itemId);
+            }
 
-                var target = page.querySelector('#ConciergeLibraryDetail');
+            /* One renderer for films, shows and episodes alike.
+             *
+             * An episode has a premise, themes, asks, dialogue and a build that wrote
+             * it exactly as a film does, so there is no reason for it to get a
+             * cut-down view. The only thing that differs is where it is drawn. */
+            function showItemIn(target, itemId) {
                 target.innerHTML = '<div class="conciergeDetail">Loading&hellip;</div>';
 
                 ApiClient.ajax({
@@ -2355,20 +2368,20 @@
                      * film should not quietly become everyone's default. */
                     html += '<h4>Redo this item</h4>'
                         + '<div style="display:flex;gap:0.5em;flex-wrap:wrap;align-items:center;">'
-                        + '<select is="emby-select" id="ConciergeRedoModel" '
+                        + '<select is="emby-select" id="ConciergeRedoModel-' + itemId + '" '
                         + 'class="emby-select-withcolor emby-select" style="flex:1 1 14em;"></select>'
-                        + '<select is="emby-select" id="ConciergeRedoThinking" '
+                        + '<select is="emby-select" id="ConciergeRedoThinking-' + itemId + '" '
                         + 'class="emby-select-withcolor emby-select" style="flex:0 1 12em;">'
                         + '<option value="Inherit">Thinking: as configured</option>'
                         + '<option value="On">Thinking: on</option>'
                         + '<option value="Off">Thinking: off</option>'
                         + '</select>'
-                        + '<button is="emby-button" type="button" id="ConciergeRedoRun" class="raised">'
+                        + '<button is="emby-button" type="button" id="ConciergeRedoRun-' + itemId + '" class="raised">'
                         + 'Ask again</button>'
                         + '</div>'
                         + '<div class="selectContainer" style="margin-top:0.7em;">'
-                        + '<label class="selectLabel" for="ConciergeRedoSubs">Dialogue</label>'
-                        + '<select is="emby-select" id="ConciergeRedoSubs" '
+                        + '<label class="selectLabel" for="ConciergeRedoSubs-' + itemId + '">Dialogue</label>'
+                        + '<select is="emby-select" id="ConciergeRedoSubs-' + itemId + '" '
                         + 'class="emby-select-withcolor emby-select"></select>'
                         + '<div class="fieldDescription">Which track to read the lines from. '
                         + 'Extraction normally picks by language and skips forced tracks, which is '
@@ -2376,7 +2389,7 @@
                         + 'immediately. <strong>None</strong> removes the stored dialogue so this film '
                         + 'stops matching quote searches.</div>'
                         + '</div>'
-                        + '<div id="ConciergeRedoResult" class="conciergeRunMeta"></div>';
+                        + '<div id="ConciergeRedoResult-' + itemId + '" class="conciergeRunMeta"></div>';
 
                     // Where this answer came from. Tied through the enrichment store
                     // rather than the run files, so it survives those being pruned —
@@ -2402,6 +2415,22 @@
                         }
                     }
 
+                    /* A show's episodes, under the show.
+                     *
+                     * Fetched when the show is opened rather than shipped with the
+                     * library: with episodes on, this library is five thousand rows
+                     * and only the show somebody actually opened needs its children.
+                     *
+                     * Each episode opens the same detail view as anything else. An
+                     * episode has a premise, themes, asks, dialogue and a build that
+                     * wrote it exactly as a film does, and there is no reason for it
+                     * to be a second-class row. */
+                    if (i.Episodes) {
+                        html += '<h4>Episodes <span class="conciergeRunMeta">'
+                            + escapeHtml(String(i.Episodes)) + ' indexed</span></h4>'
+                            + '<div id="ConciergeEpisodes-' + itemId + '" class="conciergeEmpty">Loading&hellip;</div>';
+                    }
+
                     if (d.Overview) {
                         html += '<h4>Library overview <span class="conciergeRunMeta">not written by Concierge</span></h4>'
                             + '<div class="conciergeRowText">' + escapeHtml(d.Overview) + '</div>';
@@ -2410,16 +2439,16 @@
                     target.innerHTML = html + '</div>';
 
                     fillProfileSelect(
-                        target.querySelector('#ConciergeRedoModel'),
+                        target.querySelector('#ConciergeRedoModel-' + itemId),
                         modelProfiles,
                         '',
                         'Use the enrichment profile');
 
-                    fillSubtitleSelect(target.querySelector('#ConciergeRedoSubs'), itemId);
+                    fillSubtitleSelect(target.querySelector('#ConciergeRedoSubs-' + itemId), itemId);
 
-                    target.querySelector('#ConciergeRedoRun').addEventListener('click', function () {
+                    target.querySelector('#ConciergeRedoRun-' + itemId).addEventListener('click', function () {
                         var button = this;
-                        var out = target.querySelector('#ConciergeRedoResult');
+                        var out = target.querySelector('#ConciergeRedoResult-' + itemId);
 
                         button.disabled = true;
                         out.textContent = 'Asking\u2026';
@@ -2428,11 +2457,11 @@
                             type: 'POST',
                             url: ApiClient.getUrl('Concierge/Library/' + itemId + '/Reindex'),
                             data: JSON.stringify({
-                                ModelProfileId: target.querySelector('#ConciergeRedoModel').value,
-                                Thinking: target.querySelector('#ConciergeRedoThinking').value,
+                                ModelProfileId: target.querySelector('#ConciergeRedoModel-' + itemId).value,
+                                Thinking: target.querySelector('#ConciergeRedoThinking-' + itemId).value,
                                 Enrichment: true,
                                 SubtitleStreamIndex: subtitleChoice(
-                                    target.querySelector('#ConciergeRedoSubs'))
+                                    target.querySelector('#ConciergeRedoSubs-' + itemId))
                             }),
                             contentType: 'application/json',
                             dataType: 'json'
@@ -2457,6 +2486,10 @@
                                 + '</span>';
                         });
                     });
+
+                    if (i.Episodes) {
+                        loadEpisodes(target, itemId);
+                    }
 
                     var link = target.querySelector('.conciergeOpenRun');
                     if (link) {
@@ -2524,6 +2557,71 @@
                 if (!select || select.value === '') { return null; }
 
                 return select.value === 'none' ? -1 : parseInt(select.value, 10);
+            }
+
+            /* Episode rows, in season and episode order.
+             *
+             * Numbered rather than merely titled: an episode called "The Wand" is not
+             * identifiable on its own, which is the same reason the run log and the
+             * enrichment prompt now name them in full. */
+            function episodeLabel(e) {
+                var n = (e.SeasonNumber !== null && e.EpisodeNumber !== null)
+                    ? 'S' + e.SeasonNumber + 'E' + e.EpisodeNumber + ' · '
+                    : '';
+
+                return n + e.Title;
+            }
+
+            function loadEpisodes(target, seriesId) {
+                var slot = target.querySelector('#ConciergeEpisodes-' + seriesId);
+                if (!slot) {
+                    return;
+                }
+
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Library/' + seriesId + '/Episodes'),
+                    dataType: 'json'
+                }).then(function (episodes) {
+                    if (!episodes || !episodes.length) {
+                        slot.className = 'conciergeEmpty';
+                        slot.textContent = 'None indexed. Turn on episodes and build the index.';
+                        return;
+                    }
+
+                    slot.className = 'conciergeLib';
+                    slot.innerHTML = episodes.map(function (e) {
+                        return '<div class="conciergeLibRow" data-ep="' + escapeHtml(e.ItemId) + '">'
+                            + '<span class="conciergeLibName">' + escapeHtml(episodeLabel(e)) + '</span>'
+                            + '<span class="conciergeLibChips">' + libraryChips(e) + '</span>'
+                            + '</div><div class="conciergeEpDetail" data-for="'
+                            + escapeHtml(e.ItemId) + '"></div>';
+                    }).join('');
+
+                    Array.prototype.forEach.call(slot.querySelectorAll('.conciergeLibRow'), function (row) {
+                        row.addEventListener('click', function () {
+                            openEpisode(row.getAttribute('data-ep'));
+                        });
+                    });
+                }, function () {
+                    slot.className = 'conciergeEmpty';
+                    slot.textContent = 'Could not read its episodes.';
+                });
+            }
+
+            // In place, under its row, so the show it belongs to stays on screen.
+            function openEpisode(episodeId) {
+                var slot = page.querySelector('.conciergeEpDetail[data-for="' + episodeId + '"]');
+                if (!slot) {
+                    return;
+                }
+
+                if (slot.innerHTML) {
+                    slot.innerHTML = '';
+                    return;
+                }
+
+                showItemIn(slot, episodeId);
             }
 
             function loadLibrary() {

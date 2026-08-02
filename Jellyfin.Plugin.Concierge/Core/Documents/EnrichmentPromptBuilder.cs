@@ -99,7 +99,7 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
             {
                 var document = documents[i];
                 text.Append(i.ToString(CultureInfo.InvariantCulture)).Append(". ");
-                text.Append(document.Title);
+                text.Append(document.FullTitle);
 
                 if (document.Year is { } year)
                 {

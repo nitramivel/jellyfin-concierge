@@ -39,6 +39,8 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
         {
             ArgumentNullException.ThrowIfNull(item);
 
+            var episode = item as MediaBrowser.Controller.Entities.TV.Episode;
+
             return new ItemDocument(
                 item.Id,
                 item.GetBaseItemKind().ToString(),
@@ -52,7 +54,15 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
                 item.OfficialRating ?? string.Empty,
                 RuntimeMinutes(item.RunTimeTicks),
                 item.Overview ?? string.Empty,
-                enrichment);
+                enrichment,
+
+                // An episode without its show is unidentifiable. "The Wand" means
+                // nothing on its own; "Adventure Time S6E13 — The Wand" is a thing
+                // somebody could search for, and a line in a log somebody could read.
+                episode?.SeriesId,
+                episode?.SeriesName ?? string.Empty,
+                episode?.ParentIndexNumber,
+                episode?.IndexNumber);
         }
 
         private static int? RuntimeMinutes(long? ticks)

@@ -28,6 +28,13 @@ namespace Jellyfin.Plugin.Concierge.Api
     /// Whether this item's stored enrichment differs from what is actually embedded —
     /// that is, whether the answers on this page are the ones a search would use.
     /// </param>
+    /// <param name="SeriesId">The show this is an episode of, or null.</param>
+    /// <param name="SeasonNumber">Its season, when it is an episode.</param>
+    /// <param name="EpisodeNumber">Its number within that season.</param>
+    /// <param name="Episodes">
+    /// How many of this show's episodes are indexed. Zero on anything that is not a
+    /// show, and on a show whose episodes have not been indexed.
+    /// </param>
     public sealed record LibraryItemSummary(
         Guid ItemId,
         string Title,
@@ -42,7 +49,11 @@ namespace Jellyfin.Plugin.Concierge.Api
         bool Spoiler,
         int Rows,
         int Cues,
-        bool Pending);
+        bool Pending,
+        Guid? SeriesId,
+        int? SeasonNumber,
+        int? EpisodeNumber,
+        int Episodes);
 
     /// <summary>
     /// Everything Concierge holds for one item.

@@ -10,11 +10,11 @@
     "versions": [
       {
         "version": "0.26.0.0",
-        "changelog": "Phrasings per item can now go to 16, and the enrichment prompt honours the number instead of contradicting it \u2014 its rules said 6-10 while its instruction said the configured value, so anything above 10 was quietly ignored. The spoiler flag is shown on the item itself rather than only as a tag in the list. Pick which subtitle track a film's dialogue is read from, or None to remove it. The Concierge toggle is an icon in the search box. Fixes the search bar doing nothing since 0.18.0.0. Folds in 0.19.0.0 through 0.25.0.0.",
+        "changelog": "Episodes live under their show in the Library tab and expand to the same detail as anything else, and they carry their series name everywhere it is read.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.26.0.0/concierge_0.26.0.0.zip",
-        "checksum": "026196a6fc463d8166e524ff7bd61f74",
-        "timestamp": "2026-08-02T23:16:32Z"
+        "checksum": "33695a849614bfa04a7e80f04a1d3047",
+        "timestamp": "2026-08-02T23:24:19Z"
       },
       {
         "version": "0.18.0.0",

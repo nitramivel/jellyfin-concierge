@@ -102,6 +102,15 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
     /// able to tell it happened.
     /// </param>
     /// <param name="Enrichment">What the enrichment pass added, or null before it has run.</param>
+    /// <param name="SeriesId">
+    /// The show an episode belongs to, or null for anything that is not one.
+    /// </param>
+    /// <param name="SeriesName">
+    /// The show's title. Carried on the episode because an episode called "The Wand"
+    /// is not identifiable without it — in a search, in a run log, or in a list.
+    /// </param>
+    /// <param name="SeasonNumber">Its season, when it has one.</param>
+    /// <param name="EpisodeNumber">Its number within that season.</param>
     public sealed record ItemDocument(
         Guid ItemId,
         string Kind,
@@ -115,8 +124,42 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
         string OfficialRating,
         int? RuntimeMinutes,
         string Overview,
-        Enrichment? Enrichment = null)
+        Enrichment? Enrichment = null,
+
+        // Optional so an index written before episodes had a parent still loads. Those
+        // documents report no series, which is the truth about what was recorded.
+        Guid? SeriesId = null,
+        string SeriesName = "",
+        int? SeasonNumber = null,
+        int? EpisodeNumber = null)
     {
+        /// <summary>
+        /// Gets the item named so a person could identify it.
+        /// </summary>
+        /// <remarks>
+        /// An episode's own title is not an identifier. "The Wand" in a run log, a
+        /// batch prompt or a list is unanswerable; "Adventure Time S6E13 — The Wand"
+        /// is a thing somebody can recognise, search for and check.
+        /// </remarks>
+        public string FullTitle
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(SeriesName))
+                {
+                    return Title;
+                }
+
+                var number = SeasonNumber is { } season && EpisodeNumber is { } episode
+                    ? string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $" S{season}E{episode}")
+                    : string.Empty;
+
+                return SeriesName + number + " — " + Title;
+            }
+        }
+
         /// <summary>
         /// Splits the document into weighted fields for lexical indexing.
         /// </summary>
@@ -126,6 +169,14 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
             var sections = new List<DocumentSection>(7);
 
             Add(sections, DocumentField.Title, Title);
+
+            // The show's name, weighted as a title, on every one of its episodes.
+            // Without it "adventure time" matches the series row and nothing else,
+            // and an episode is only ever reachable by its own obscure name.
+            if (!string.IsNullOrWhiteSpace(SeriesName))
+            {
+                Add(sections, DocumentField.Title, SeriesName);
+            }
 
             // Only when it says something the display title does not — otherwise it
             // is the same string counted twice at seven times the weight.

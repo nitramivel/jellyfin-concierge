@@ -383,8 +383,18 @@ namespace Jellyfin.Plugin.Concierge.Api
             var embedded = EmbeddedAsksByItem(index);
             var stored = await _store.LoadEnrichmentAsync(cancellationToken).ConfigureAwait(false);
 
+            // Episodes are counted onto their show and then left out of the top level.
+            // A list of five thousand episodes interleaved alphabetically with their
+            // shows is not a library anybody can read; the show is the thing you look
+            // for and the episodes belong underneath it.
+            var episodeCounts = index.Documents
+                .Where(d => d.SeriesId is not null)
+                .GroupBy(d => d.SeriesId!.Value)
+                .ToDictionary(g => g.Key, g => g.Count());
+
             var items = index.Documents
-                .Select(d => Summarize(d, rows, cues, embedded))
+                .Where(d => d.SeriesId is null)
+                .Select(d => Summarize(d, rows, cues, embedded, episodeCounts))
                 .OrderBy(i => i.Title, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -473,6 +483,45 @@ namespace Jellyfin.Plugin.Concierge.Api
                 track?.SourcePath ?? string.Empty,
                 track?.ExtractedUtc,
                 provenance));
+        }
+
+        /// <summary>
+        /// One show's episodes, as Concierge holds them.
+        /// </summary>
+        /// <param name="itemId">The show.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <response code="200">Its episodes, in season and episode order.</response>
+        /// <returns>The episodes.</returns>
+        /// <remarks>
+        /// Fetched per show rather than sent with the library, because a library with
+        /// episodes on is five thousand rows and only the show somebody opens needs
+        /// its children.
+        /// </remarks>
+        [HttpGet("Library/{itemId}/Episodes")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<LibraryItemSummary>>> Episodes(
+            [FromRoute] Guid itemId,
+            CancellationToken cancellationToken)
+        {
+            var index = await LoadIndexAsync(cancellationToken).ConfigureAwait(false);
+
+            if (index is null)
+            {
+                return Ok(Array.Empty<LibraryItemSummary>());
+            }
+
+            var rows = CountRowsByItem(index);
+            var embedded = EmbeddedAsksByItem(index);
+            var cues = await CountCuesByItemAsync(cancellationToken).ConfigureAwait(false);
+
+            return Ok(index.Documents
+                .Where(d => d.SeriesId == itemId)
+                .Select(d => Summarize(d, rows, cues, embedded))
+                .OrderBy(e => e.SeasonNumber ?? int.MaxValue)
+                .ThenBy(e => e.EpisodeNumber ?? int.MaxValue)
+                .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList());
         }
 
         /// <summary>
@@ -713,7 +762,8 @@ namespace Jellyfin.Plugin.Concierge.Api
             Core.Documents.ItemDocument document,
             IReadOnlyDictionary<Guid, int> rows,
             IReadOnlyDictionary<Guid, int> cues,
-            IReadOnlyDictionary<Guid, List<string>> embedded)
+            IReadOnlyDictionary<Guid, List<string>> embedded,
+            IReadOnlyDictionary<Guid, int>? episodeCounts = null)
         {
             var e = document.Enrichment;
 
@@ -740,7 +790,11 @@ namespace Jellyfin.Plugin.Concierge.Api
                 e?.Spoiler ?? false,
                 rows.GetValueOrDefault(document.ItemId),
                 cues.GetValueOrDefault(document.ItemId),
-                pending);
+                pending,
+                document.SeriesId,
+                document.SeasonNumber,
+                document.EpisodeNumber,
+                episodeCounts?.GetValueOrDefault(document.ItemId) ?? 0);
         }
 
         /// <summary>

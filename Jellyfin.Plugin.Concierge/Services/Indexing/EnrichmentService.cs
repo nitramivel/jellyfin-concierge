@@ -323,7 +323,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
                 foreach (var document in batch)
                 {
-                    runLog.ItemNotEnriched(document.Title, "batch-failed");
+                    runLog.ItemNotEnriched(document.FullTitle, "batch-failed");
                     runLog.ItemEnriched(Record(document, batchNumber, "batch-failed", null, 0m));
                 }
 
@@ -351,7 +351,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
                 foreach (var document in batch)
                 {
-                    runLog.ItemNotEnriched(document.Title, result.Truncated ? "truncated" : "unparseable");
+                    runLog.ItemNotEnriched(document.FullTitle, result.Truncated ? "truncated" : "unparseable");
                     runLog.ItemEnriched(Record(
                         document,
                         batchNumber,
@@ -389,7 +389,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                     // Silently omitted. Left unstored so the next run asks again,
                     // rather than recording an empty answer the model never gave.
                     missing++;
-                    runLog.ItemNotEnriched(batch[i].Title, "omitted");
+                    runLog.ItemNotEnriched(batch[i].FullTitle, "omitted");
                     runLog.ItemEnriched(Record(batch[i], batchNumber, "omitted", null, share));
                     continue;
                 }
@@ -400,7 +400,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                     // answer for an obscure title and it is stored, so the next run
                     // does not pay to ask again.
                     unknown++;
-                    runLog.ItemNotEnriched(batch[i].Title, "unknown-to-model");
+                    runLog.ItemNotEnriched(batch[i].FullTitle, "unknown-to-model");
                     runLog.ItemEnriched(
                         Record(batch[i], batchNumber, "unknown-to-model", enrichment, share));
                 }
@@ -448,7 +448,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
         {
             return new RunItemRecord(
                 document.ItemId,
-                document.Title,
+                document.FullTitle,
                 document.Year,
                 batch,
                 outcome,
