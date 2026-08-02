@@ -117,6 +117,17 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
             string? error = null);
 
         /// <summary>
+        /// Records what one item actually got out of a batch.
+        /// </summary>
+        /// <remarks>
+        /// The call record says what a batch cost; this says what an item got for it.
+        /// Together they answer the question a bill cannot: not "what did I spend" but
+        /// "on what, and was it any good".
+        /// </remarks>
+        /// <param name="item">The item's outcome and what came back for it.</param>
+        void ItemEnriched(RunItemRecord item);
+
+        /// <summary>
         /// Names an item the run could not enrich, and why.
         /// </summary>
         /// <remarks>
@@ -173,7 +184,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         int RowsEmbedded,
         int RowsReused,
         decimal CostUsd,
-        string? Error);
+        string? Error,
+        string Models,
+        decimal? ProjectedCostUsd);
 
     /// <summary>
     /// Opens run logs. One file per run, in their own directory.
@@ -263,6 +276,10 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         }
 
         /// <inheritdoc />
+        public void ItemEnriched(RunItemRecord item)
+        {
+        }
+
         public void ItemNotEnriched(string title, string reason)
         {
         }

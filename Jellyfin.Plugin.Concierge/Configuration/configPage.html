@@ -1555,6 +1555,20 @@
                     meta += ' · ' + escapeHtml(String(seconds)) + 's';
                 }
 
+                // Which models ran. A rebuild costing twenty times the last one is
+                // explained by this line more often than by anything else — and the
+                // one that was not explained for a day differed only here.
+                if (run.Models) {
+                    meta += '<br/>' + escapeHtml(run.Models);
+                }
+
+                // What stopping saved. A cancelled run's own cost is the least
+                // interesting number in it.
+                if (run.ProjectedCostUsd && run.Status !== 'completed') {
+                    meta += ' · <strong>' + escapeHtml(money(run.ProjectedCostUsd))
+                        + '</strong> to finish at this rate';
+                }
+
                 if (run.Error) {
                     meta += '<br/><span class="conciergeBad">' + escapeHtml(run.Error) + '</span>';
                 }

@@ -76,6 +76,8 @@ namespace Jellyfin.Plugin.Concierge.Tests
 
             public List<string> Steps { get; } = [];
 
+            public List<RunItemRecord> Items { get; } = [];
+
             public List<(string Pass, string Outcome, string? Error)> Calls { get; } = [];
 
             public List<(string Title, string Reason)> NotEnriched { get; } = [];
@@ -100,6 +102,8 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 string model, string provider, string? error = null)
             {
             }
+
+            public void ItemEnriched(RunItemRecord item) => Items.Add(item);
 
             public void ItemNotEnriched(string title, string reason) => NotEnriched.Add((title, reason));
 

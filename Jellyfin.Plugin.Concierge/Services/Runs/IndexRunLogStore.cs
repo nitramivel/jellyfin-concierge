@@ -19,6 +19,29 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
     /// builds are rare and each is worth keeping whole. A build that spent money and
     /// went wrong is the thing you most want a full record of.
     /// </remarks>
+    /// <summary>
+    /// Groups calls by provider, model and pass with ordinal comparison.
+    /// </summary>
+    /// <remarks>
+    /// Ordinal on purpose: these are identifiers, and a culture-aware comparison is
+    /// how "gpt-5.6-luna" and "GPT-5.6-LUNA" become the same row on one machine and
+    /// two on another.
+    /// </remarks>
+    internal sealed class StringTupleComparer : IEqualityComparer<(string Provider, string Model, string Pass)>
+    {
+        public static StringTupleComparer Instance { get; } = new();
+
+        public bool Equals(
+            (string Provider, string Model, string Pass) x,
+            (string Provider, string Model, string Pass) y)
+            => string.Equals(x.Provider, y.Provider, StringComparison.Ordinal)
+                && string.Equals(x.Model, y.Model, StringComparison.Ordinal)
+                && string.Equals(x.Pass, y.Pass, StringComparison.Ordinal);
+
+        public int GetHashCode((string Provider, string Model, string Pass) obj)
+            => HashCode.Combine(obj.Provider, obj.Model, obj.Pass);
+    }
+
     public sealed class IndexRunLogStore : IIndexRunLogStore
     {
         /// <summary>How many run files are kept before the oldest are removed.</summary>
@@ -145,7 +168,14 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
             d.RowsEmbedded,
             d.RowsReused,
             d.Totals.TotalCostUsd,
-            d.Error);
+            d.Error,
+
+            // Which models, on the list row. A run costing twenty times the last one
+            // is explained by this string far more often than by anything else, and
+            // making somebody open the file to find it is how the last one went
+            // unexplained for a day.
+            string.Join(", ", d.ByModel.Select(m => m.Model).Distinct(StringComparer.Ordinal)),
+            d.Projection?.ProjectedTotalCostUsd);
 
         /// <summary>
         /// Writes a run document, and prunes the oldest once there are too many.
@@ -210,6 +240,13 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
             private readonly IndexRunDocument _document;
             private readonly object _lock = new();
 
+            /* The rates each model was billed at, kept so the per-model rollup can
+             * print them. A total nobody can check by hand is a total nobody trusts —
+             * and the last rebuild's entire explanation was two numbers changing from
+             * 0.2/1.2 to 5/25. */
+            private readonly Dictionary<string, decimal> _inputPerMillion = new(StringComparer.Ordinal);
+            private readonly Dictionary<string, decimal> _outputPerMillion = new(StringComparer.Ordinal);
+
             private int _sinceFlush;
 
             public RunLog(IndexRunLogStore store, string trigger, IReadOnlyDictionary<string, object?> settings)
@@ -252,6 +289,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
                         {
                             Lift(detail, "items", v => _document.ItemsIndexed = v);
                             Lift(detail, "enriched", v => _document.ItemsEnriched = v);
+                            Lift(detail, "stale", v => _document.ItemsPlanned = v);
                             Lift(detail, "embedded", v => _document.RowsEmbedded = v);
                             Lift(detail, "reused", v => _document.RowsReused = v);
                         }
@@ -307,6 +345,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
 
                     lock (_lock)
                     {
+                        _inputPerMillion[model] = pricing.InputCostPerMillion;
+                        _outputPerMillion[model] = pricing.OutputCostPerMillion;
+
                         _document.Calls.Add(new RunCallRecord(
                             DateTime.UtcNow - duration,
                             pass,
@@ -369,6 +410,22 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
                 }
             }
 
+            public void ItemEnriched(RunItemRecord item)
+            {
+                try
+                {
+                    lock (_lock)
+                    {
+                        _document.Items.Add(item);
+                    }
+
+                    FlushIfDue(force: false);
+                }
+                catch
+                {
+                }
+            }
+
             public void ItemNotEnriched(string title, string reason)
             {
                 try
@@ -388,6 +445,59 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
             public void Cancel() => Finish("cancelled", null);
 
             public void Fail(string error) => Finish("failed", error);
+
+            /// <summary>
+            /// Rolls the calls up by model, and projects where an unfinished run was
+            /// heading.
+            /// </summary>
+            /// <remarks>
+            /// Recomputed on every flush rather than at the end, because the runs worth
+            /// reading are the ones that did not reach the end. A cancelled rebuild's
+            /// own cost is the least interesting number in it; the one that matters is
+            /// what finishing would have cost, and that has to survive the cancel.
+            /// </remarks>
+            private void Summarise()
+            {
+                var byModel = _document.Calls
+                    .GroupBy(c => (c.Provider, c.Model, c.Pass), StringTupleComparer.Instance)
+                    .Select(g => new RunModelTotals(
+                        g.Key.Provider,
+                        g.Key.Model,
+                        g.Key.Pass,
+                        g.Count(),
+                        g.Sum(c => c.ItemCount),
+                        g.Sum(c => c.InputTokens),
+                        g.Sum(c => c.OutputTokens),
+                        g.Sum(c => c.ThinkingTokens),
+                        g.Sum(c => c.DurationMs),
+                        g.Sum(c => c.CostUsd),
+                        _inputPerMillion.GetValueOrDefault(g.Key.Model),
+                        _outputPerMillion.GetValueOrDefault(g.Key.Model)))
+                    .OrderByDescending(m => m.CostUsd)
+                    .ToList();
+
+                _document.ByModel = byModel;
+
+                var done = _document.Items.Count;
+                var planned = _document.ItemsPlanned;
+
+                if (planned <= 0 || done <= 0 || done >= planned)
+                {
+                    _document.Projection = null;
+                    return;
+                }
+
+                var spent = _document.Calls.Sum(c => c.CostUsd);
+                var elapsed = _document.Calls.Sum(c => (long)c.DurationMs);
+                var rate = (decimal)planned / done;
+
+                _document.Projection = new RunProjection(
+                    done,
+                    planned - done,
+                    spent,
+                    decimal.Round(spent * rate, 4),
+                    (long)(elapsed * (planned / (double)done)));
+            }
 
             private void Finish(string status, string? error)
             {
@@ -413,6 +523,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
                 IndexRunDocument snapshot;
                 lock (_lock)
                 {
+                    Summarise();
+
                     if (!force && ++_sinceFlush < FlushEveryCalls)
                     {
                         return;

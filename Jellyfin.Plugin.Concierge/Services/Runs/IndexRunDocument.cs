@@ -76,6 +76,99 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         decimal CostUsd,
         string? Error);
 
+    /// <summary>
+    /// What one item actually got out of the run.
+    /// </summary>
+    /// <remarks>
+    /// The call records say what a <em>batch</em> cost. This says what an item got for
+    /// it, which is the question you have when a rebuild costs twenty times what the
+    /// last one did: not "what did I spend" but "on what, and was it worth it".
+    /// <para>
+    /// <see cref="CostUsd"/> is its batch's cost divided by the batch, so it is a
+    /// share rather than a measurement — items are billed together and there is no
+    /// honest way to split a batch by item. It is recorded anyway because a per-item
+    /// figure is what makes two models comparable.
+    /// </para>
+    /// </remarks>
+    /// <param name="Title">The item.</param>
+    /// <param name="Year">Its year, when it has one.</param>
+    /// <param name="Batch">Which batch it was in, 1-based.</param>
+    /// <param name="Outcome">enriched, unknown-to-model, omitted, batch-failed or truncated.</param>
+    /// <param name="PremiseChars">How much premise came back.</param>
+    /// <param name="Moments">How many moments.</param>
+    /// <param name="Themes">How many themes.</param>
+    /// <param name="Asks">How many asks — the doc2query sentences a vague search matches.</param>
+    /// <param name="Spoiler">Whether the model flagged its own answer as spoiling something.</param>
+    /// <param name="CostUsd">Its share of the batch.</param>
+    public sealed record RunItemRecord(
+        string Title,
+        int? Year,
+        int Batch,
+        string Outcome,
+        int PremiseChars,
+        int Moments,
+        int Themes,
+        int Asks,
+        bool Spoiler,
+        decimal CostUsd);
+
+    /// <summary>
+    /// One model's share of a run.
+    /// </summary>
+    /// <remarks>
+    /// A run can enrich on one model and embed on another, and after 0.17 it can use
+    /// a different model for every pass. A single chat total cannot express that, and
+    /// "why was this run expensive" is unanswerable without it — the last rebuild's
+    /// whole story was that one line changed from gpt-5.6-luna to claude-opus-5.
+    /// </remarks>
+    /// <param name="Provider">The provider.</param>
+    /// <param name="Model">The model.</param>
+    /// <param name="Pass">Which pass it ran.</param>
+    /// <param name="Calls">Calls made.</param>
+    /// <param name="Items">Items covered.</param>
+    /// <param name="InputTokens">Uncached input.</param>
+    /// <param name="OutputTokens">Output.</param>
+    /// <param name="ThinkingTokens">Reasoning tokens.</param>
+    /// <param name="DurationMs">Time inside those calls.</param>
+    /// <param name="CostUsd">What they cost.</param>
+    /// <param name="InputCostPerMillion">The price used, so a total can be checked by hand.</param>
+    /// <param name="OutputCostPerMillion">The price used, so a total can be checked by hand.</param>
+    public sealed record RunModelTotals(
+        string Provider,
+        string Model,
+        string Pass,
+        int Calls,
+        int Items,
+        long InputTokens,
+        long OutputTokens,
+        long ThinkingTokens,
+        int DurationMs,
+        decimal CostUsd,
+        decimal InputCostPerMillion,
+        decimal OutputCostPerMillion);
+
+    /// <summary>
+    /// Where an unfinished run was heading.
+    /// </summary>
+    /// <remarks>
+    /// A cancelled run's cost is not the interesting number — the interesting number
+    /// is the one you avoided. The last rebuild stopped after 30 of 269 items having
+    /// spent $0.40; what mattered was that finishing would have been $3.60 and 36
+    /// minutes. That is a fact the log should state rather than one the reader should
+    /// have to work out.
+    /// </remarks>
+    /// <param name="ItemsDone">Items enriched before it stopped.</param>
+    /// <param name="ItemsRemaining">Items that never got there.</param>
+    /// <param name="CostSoFarUsd">Spent.</param>
+    /// <param name="ProjectedTotalCostUsd">What finishing would have cost at this rate.</param>
+    /// <param name="ProjectedTotalMs">How long finishing would have taken at this rate.</param>
+    public sealed record RunProjection(
+        int ItemsDone,
+        int ItemsRemaining,
+        decimal CostSoFarUsd,
+        decimal ProjectedTotalCostUsd,
+        long ProjectedTotalMs);
+
     /// <summary>An item that came out of the run without enrichment, and why.</summary>
     /// <param name="Title">The item.</param>
     /// <param name="Reason">unknown-to-model, omitted, batch-failed or truncated.</param>
@@ -158,6 +251,15 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         /// <summary>Gets or sets how many carry non-empty enrichment.</summary>
         public int ItemsEnriched { get; set; }
 
+        /// <summary>
+        /// How many items this run set out to enrich.
+        /// </summary>
+        /// <remarks>
+        /// The denominator a projection needs. Without it a cancelled run can say what
+        /// it spent and not what it was going to.
+        /// </remarks>
+        public int ItemsPlanned { get; set; }
+
         /// <summary>Gets or sets how many vector rows were embedded this run.</summary>
         public int RowsEmbedded { get; set; }
 
@@ -175,6 +277,15 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
 
         /// <summary>Gets or sets the items that came out unenriched, with reasons.</summary>
         public List<NotEnrichedRecord> NotEnriched { get; set; } = [];
+
+        /// <summary>What each item got, in the order it was processed.</summary>
+        public List<RunItemRecord> Items { get; set; } = [];
+
+        /// <summary>What each model did and charged.</summary>
+        public List<RunModelTotals> ByModel { get; set; } = [];
+
+        /// <summary>Where an unfinished run was heading, or null once it finished.</summary>
+        public RunProjection? Projection { get; set; }
 
         /// <summary>Gets or sets the totals, written at flush time.</summary>
         public RunTotals Totals { get; set; } = new(0, 0, 0, 0, 0, 0, 0, 0m, 0, 0, 0m, 0m);

@@ -156,6 +156,25 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
                     progress?.Report((i + 1) / (double)batches.Count);
 
+                    // One step per batch, with the running total. A run that is killed
+                    // after five minutes still shows exactly where the money went, and
+                    // a run that is merely slow can be watched rather than guessed at.
+                    runLog.Step(
+                        "enrichment.batch",
+                        $"Batch {i + 1} of {batches.Count} — {outcome.Known} enriched, "
+                            + $"{outcome.Unknown} unknown, ${cost:F4} so far",
+                        new Dictionary<string, object?>
+                        {
+                            ["batch"] = i + 1,
+                            ["batches"] = batches.Count,
+                            ["items"] = batches[i].Length,
+                            ["known"] = outcome.Known,
+                            ["unknown"] = outcome.Unknown,
+                            ["failed"] = outcome.Failed,
+                            ["batchCostUsd"] = decimal.Round(outcome.Cost, 6),
+                            ["runningCostUsd"] = decimal.Round(cost, 6),
+                        });
+
                     // A heartbeat in the server log. Without one, a pass over a large
                     // library is fifteen minutes of silence between "starting" and
                     // "finished", which is indistinguishable from a hang.
@@ -292,6 +311,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 foreach (var document in batch)
                 {
                     runLog.ItemNotEnriched(document.Title, "batch-failed");
+                    runLog.ItemEnriched(Record(document, batchNumber, "batch-failed", null, 0m));
                 }
 
                 // One failed batch must not sink a build that has already paid for
@@ -319,6 +339,12 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 foreach (var document in batch)
                 {
                     runLog.ItemNotEnriched(document.Title, result.Truncated ? "truncated" : "unparseable");
+                    runLog.ItemEnriched(Record(
+                        document,
+                        batchNumber,
+                        result.Truncated ? "truncated" : "unparseable",
+                        null,
+                        batch.Length > 0 ? cost / batch.Length : 0m));
                 }
 
                 _logger.LogWarning(
@@ -337,6 +363,12 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             var unknown = 0;
             var missing = 0;
 
+            // Items are billed as a batch, so a per-item cost can only ever be a
+            // share. Recorded anyway: it is the number that makes two models
+            // comparable, and "what did this title cost me" is the question a bill
+            // cannot answer.
+            var share = batch.Length > 0 ? cost / batch.Length : 0m;
+
             for (var i = 0; i < batch.Length; i++)
             {
                 if (!parsed.TryGetValue(i, out var enrichment))
@@ -345,6 +377,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                     // rather than recording an empty answer the model never gave.
                     missing++;
                     runLog.ItemNotEnriched(batch[i].Title, "omitted");
+                    runLog.ItemEnriched(Record(batch[i], batchNumber, "omitted", null, share));
                     continue;
                 }
 
@@ -355,10 +388,14 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                     // does not pay to ask again.
                     unknown++;
                     runLog.ItemNotEnriched(batch[i].Title, "unknown-to-model");
+                    runLog.ItemEnriched(
+                        Record(batch[i], batchNumber, "unknown-to-model", enrichment, share));
                 }
                 else
                 {
                     known++;
+                    runLog.ItemEnriched(
+                        Record(batch[i], batchNumber, "enriched", enrichment, share));
                 }
 
                 results.Add(new StoredEnrichment(
@@ -372,6 +409,35 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 provider.ModelId, profile.Provider.ToString(), pricing);
 
             return new BatchOutcome(results, cost, known, unknown, missing);
+        }
+
+        /// <summary>
+        /// What one item got, in a shape the run log can store.
+        /// </summary>
+        /// <remarks>
+        /// Counts and lengths rather than the text itself. The full answer is already
+        /// in the enrichment store and repeating it here would turn a run log into a
+        /// second copy of the index — but "premise: 0 characters, asks: 0" is exactly
+        /// what you need to see to know a model was paid for nothing.
+        /// </remarks>
+        private static RunItemRecord Record(
+            ItemDocument document,
+            int batch,
+            string outcome,
+            Enrichment? enrichment,
+            decimal share)
+        {
+            return new RunItemRecord(
+                document.Title,
+                document.Year,
+                batch,
+                outcome,
+                enrichment?.Premise.Length ?? 0,
+                enrichment?.Moments.Count ?? 0,
+                enrichment?.Themes.Count ?? 0,
+                enrichment?.Asks.Count ?? 0,
+                enrichment?.Spoiler ?? false,
+                decimal.Round(share, 6));
         }
 
         private sealed record BatchOutcome(
