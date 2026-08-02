@@ -264,6 +264,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             var ordered = filtered.Results;
             var explanations = new Dictionary<Guid, string>();
             var reranked = false;
+            var rerankedCount = 0;
 
             if (!lexicalOnly && budget.AllowsRerank && ordered.Count > 1)
             {
@@ -295,12 +296,13 @@ namespace Jellyfin.Plugin.Concierge.Services
                         }
 
                         reranked = true;
+                        rerankedCount = outcome.Ranked;
                     }
                 }
             }
 
             var hits = ordered
-                .Take(Math.Max(1, config.MaxResults))
+                .Take(HowManyToShow(config, rerankedCount))
                 .Select(f =>
                 {
                     byId.TryGetValue(f.ItemId, out var document);
@@ -413,6 +415,44 @@ namespace Jellyfin.Plugin.Concierge.Services
                 return SearchPlan.Passthrough(query);
             }
         }
+
+        /// <summary>
+        /// How many results to show.
+        /// </summary>
+        /// <param name="config">The effective configuration.</param>
+        /// <param name="rankedByModel">
+        /// How many the re-rank pass actually placed, or 0 when it did not run.
+        /// </param>
+        /// <returns>The number of hits to return.</returns>
+        /// <remarks>
+        /// A fixed count is a lie about how many things matched. "beatles" on this
+        /// library has nine good answers and "im your freaky nicki" has one; padding
+        /// both to the same number fills the difference with whatever ranked tenth,
+        /// and a reader cannot tell the padding from the answer.
+        /// <para>
+        /// So when the model has said which ones it would actually show, that count
+        /// is the answer. The floor exists because a degenerate reply naming one item
+        /// should still leave something to look at beside it, and the ceiling is
+        /// whatever the caller asked for. When the re-rank did not run there is no
+        /// opinion to honour, and the configured maximum stands — the fused order is
+        /// a ranking, not a judgement about where the good answers stop.
+        /// </para>
+        /// </remarks>
+        public static int HowManyToShow(PluginConfiguration config, int rankedByModel)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+
+            var ceiling = Math.Max(1, config.MaxResults);
+
+            return rankedByModel > 0
+                ? Math.Clamp(rankedByModel, Math.Min(MinimumRerankedResults, ceiling), ceiling)
+                : ceiling;
+        }
+
+        /// <summary>
+        /// The fewest results a successful re-rank may reduce the answer to.
+        /// </summary>
+        private const int MinimumRerankedResults = 3;
 
         private async Task<RerankOutcome?> RunRerankAsync(
             string query,

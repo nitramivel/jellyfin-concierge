@@ -129,7 +129,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                         httpClient,
                         profile.Model,
                         profile.ApiKey,
-                        NullIfEmpty(profile.BaseUrl));
+                        NullIfEmpty(profile.BaseUrl),
+                        enableThinking);
 
                 case LlmProviderKind.OpenAiCompatible:
                     if (string.IsNullOrWhiteSpace(profile.BaseUrl))

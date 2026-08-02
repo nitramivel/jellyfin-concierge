@@ -169,8 +169,51 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 StringComparison.Ordinal);
             Assert.Contains("itemsContainer scrollSlider concierge-row", Script, StringComparison.Ordinal);
             Assert.Contains("card-withuserdata concierge-card", Script, StringComparison.Ordinal);
-            Assert.Contains(".concierge-card .cardText{text-align:left!important", Script, StringComparison.Ordinal);
             Assert.DoesNotContain("vertical-wrap concierge-row", Script, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Card text in the same three lines the native rows use.
+        /// </summary>
+        /// <remarks>
+        /// Title tight under the poster, year beneath it at 86% via
+        /// <c>.cardText-secondary</c>, then the match reason. Not
+        /// <c>cardTextCentered</c>: <c>.cardText</c> is already left-aligned for ltr,
+        /// so adding the centring class and overriding it again with
+        /// <c>!important</c> was arguing with the stylesheet over something it had
+        /// right — the same mistake that hid the posters for four releases.
+        /// </remarks>
+        [Fact]
+        public void CardTextIsLaidOutLikeTheNativeMoviesAndShowsRows()
+        {
+            // Comments stripped: this file explains in prose which classes it does
+            // NOT use, and a test that reads its own rationale as a violation is a
+            // test that punishes documentation.
+            var card = WithoutComments(Between(Script, "function card(", "function section("));
+
+            Assert.Contains("cardText cardText-first", card, StringComparison.Ordinal);
+            Assert.Contains("cardText cardText-secondary", card, StringComparison.Ordinal);
+            Assert.Contains("cardText concierge-why", card, StringComparison.Ordinal);
+
+            Assert.DoesNotContain("cardTextCentered", card, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "text-align:left!important", WithoutComments(Script), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The client must not be what pins the result count.
+        /// </summary>
+        /// <remarks>
+        /// Slicing to twelve in the browser meant every search returned exactly
+        /// twelve whatever the server decided, which is the thing being fixed. How
+        /// many results there are is a judgement the re-rank pass makes; the client's
+        /// job is to draw them.
+        /// </remarks>
+        [Fact]
+        public void TheClientDrawsHoweverManyResultsItIsGiven()
+        {
+            Assert.Contains("(result.Hits || []).map(", Script, StringComparison.Ordinal);
+            Assert.DoesNotContain("Hits || []).slice(", Script, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -323,11 +366,13 @@ namespace Jellyfin.Plugin.Concierge.Tests
         /// </para>
         /// </remarks>
         private static string WithoutStringLiterals(string script)
+            => Regex.Replace(WithoutComments(script), @"'(?:\\.|[^'\\])*'", "''");
+
+        private static string WithoutComments(string script)
         {
             var code = Regex.Replace(script, @"/\*.*?\*/", " ", RegexOptions.Singleline);
-            code = Regex.Replace(code, @"//[^\n]*", " ");
 
-            return Regex.Replace(code, @"'(?:\\.|[^'\\])*'", "''");
+            return Regex.Replace(code, @"//[^\n]*", " ");
         }
 
         private static string Between(string text, string start, string end)

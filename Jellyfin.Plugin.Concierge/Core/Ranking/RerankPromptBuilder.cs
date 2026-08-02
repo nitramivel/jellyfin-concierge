@@ -151,8 +151,9 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
                 They searched for: {query}
 
                 {count} candidates above. Return at most {DefaultReturned} of them —
-                the ones you would actually show, best first. The rest keep the order
-                search gave them.
+                the ones you would actually show, best first, and no more than genuinely
+                answer the search. Returning four is a better answer than padding to
+                twenty. The rest keep the order search gave them.
                 """) + "\n" + ResponseTemplate;
         }
 
@@ -167,7 +168,7 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
         /// construction — everything omitted simply keeps the position retrieval gave
         /// it, which is the answer that would have been served anyway.
         /// </remarks>
-        public const int DefaultReturned = 12;
+        public const int DefaultReturned = 20;
 
         /// <summary>
         /// The shape asked for in prose, matching what the schemas declare.

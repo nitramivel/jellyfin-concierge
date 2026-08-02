@@ -203,7 +203,7 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// budget. Retrieval still returns 40 for the evaluation set's recall@40;
         /// this is only how many the model is asked to look at.
         /// </remarks>
-        public int RerankShortlistSize { get; set; } = 24;
+        public int RerankShortlistSize { get; set; } = 40;
 
         // ── Spending ─────────────────────────────────────────────────────────────
 

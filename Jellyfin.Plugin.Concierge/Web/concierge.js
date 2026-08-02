@@ -37,11 +37,14 @@
         // Card size, spacing and hover all come from the client's own card rules.
         // Only what is genuinely ours is declared here: the reason line, the
         // timestamp badge, and the degraded note.
-        '#concierge-results .concierge-why{opacity:.72;font-size:.86em;white-space:normal;' +
-        'padding:0 .4em;display:-webkit-box;-webkit-box-orient:vertical;' +
-        '-webkit-line-clamp:2;overflow:hidden;min-height:2.4em;}' +
-        '#concierge-results .concierge-card .cardText{text-align:left!important;' +
-        'padding-left:0;padding-right:.4em;}' +
+        // The reason line is the only card text that is ours rather than Jellyfin's.
+        // ".cardText" is nowrap with an ellipsis, which is right for a title and
+        // wrong for a sentence, so this is the one place we override — clamped to
+        // two lines, with a floor so a short reason and a long one leave their cards
+        // the same height.
+        '#concierge-results .concierge-why{opacity:.72;font-size:.82em;' +
+        'white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;' +
+        '-webkit-line-clamp:2;overflow:hidden;min-height:2.3em;}' +
         '#concierge-results .concierge-note{opacity:.6;font-size:.7em;font-weight:400;}' +
         '#concierge-results .concierge-degraded{opacity:.65;font-size:.85em;' +
         'margin:.4em 0 0 .8em;}' +
@@ -230,7 +233,7 @@
      * hover come from the client's own rules, so these track the theme instead of
      * drifting from it. The classes are the client's; we only ever put them on
      * elements we created ourselves. */
-    function card(itemId, title, why, stamp) {
+    function card(itemId, title, subtitle, why, stamp) {
         var url = posterUrl(itemId);
 
         // Background image, not an <img>. ".cardImageContainer" and ".coveredImage"
@@ -251,11 +254,19 @@
             + (stamp ? '<div class="concierge-stamp">' + escapeHtml(stamp) + '</div>' : '')
             + '</a>'
             + '</div>'
-            + '<div class="cardText cardTextCentered cardText-first">'
-            + '<a is="emby-linkbutton" href="' + href + '" title="' + escapeHtml(title) + '">'
-            + '<bdi>' + escapeHtml(title) + '</bdi></a></div>'
+            // Three lines, in the order the native Movies and Shows rows use them:
+            // title tight under the poster, then the year at 86% in
+            // ".cardText-secondary", then — ours alone — why it matched. No
+            // "cardTextCentered": ".cardText" is already left-aligned for ltr, and
+            // adding the centring class only to override it again with !important
+            // was us arguing with the stylesheet over an alignment it had right.
+            + '<div class="cardText cardText-first"><bdi>' + escapeHtml(title) + '</bdi></div>'
+            + (subtitle
+                ? '<div class="cardText cardText-secondary"><bdi>'
+                    + escapeHtml(subtitle) + '</bdi></div>'
+                : '')
             + (why
-                ? '<div class="cardText cardTextCentered concierge-why" title="'
+                ? '<div class="cardText concierge-why" title="'
                     + escapeHtml(why) + '">' + escapeHtml(why) + '</div>'
                 : '')
             + '</div></div>';
@@ -276,9 +287,13 @@
     }
 
     function renderHits(result) {
-        return (result.Hits || []).slice(0, 12).map(function (hit) {
-            var title = hit.Name + (hit.Year ? ' (' + hit.Year + ')' : '');
-            return card(hit.ItemId, title, hit.Why || '', null);
+        return (result.Hits || []).map(function (hit) {
+            return card(
+                hit.ItemId,
+                hit.Name,
+                hit.Year ? String(hit.Year) : '',
+                hit.Why || '',
+                null);
         }).join('');
     }
 
@@ -293,7 +308,9 @@
             var secs = at % 60;
             var stamp = mins + ':' + (secs < 10 ? '0' : '') + secs;
 
-            return card(q.ItemId, q.Title, '\u201c' + (q.Line || '') + '\u201d', stamp);
+            // The timestamp takes the year's slot: on a quote card it is the piece of
+            // secondary information that belongs directly under the title.
+            return card(q.ItemId, q.Title, stamp, '\u201c' + (q.Line || '') + '\u201d', stamp);
         }).join('');
 
         return section('Said in\u2026', cards);
@@ -367,7 +384,7 @@
         window.ApiClient.ajax({
             type: 'POST',
             url: window.ApiClient.getUrl('Concierge/Search'),
-            data: JSON.stringify({ Query: query, Limit: 12 }),
+            data: JSON.stringify({ Query: query, Limit: 20 }),
             contentType: 'application/json',
             dataType: 'json'
         }).then(function (result) {
