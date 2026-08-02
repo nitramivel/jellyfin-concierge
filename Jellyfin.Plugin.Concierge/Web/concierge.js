@@ -13,11 +13,38 @@
  * own container is ever cleared, replaced, or reordered. We move our own node to
  * sit above theirs and read theirs only to find the landmark. If our section is
  * missing we add it; we never assume it is the only thing there.
+ *
+ * THE ONE EXCEPTION is Concierge mode, which the owner turns on deliberately: it
+ * adds a class of OURS to the library's own sections so they can be hidden, and
+ * removes it again from exactly those nodes. See applyMode. Nothing else in this
+ * file writes to a node it did not create, and the tests hold that line.
  */
 (function () {
     'use strict';
 
     var CONTAINER_ID = 'concierge-results';
+    var TOGGLE_ID = 'concierge-toggle';
+    var MODE_KEY = 'concierge-mode';
+
+    /* Concierge mode.
+     *
+     * THE ONE RULE IS RELAXED HERE, DELIBERATELY, AND ONLY HERE. Everywhere else
+     * this script touches nothing it did not create. Concierge mode adds one class
+     * of ours to the library's own sections so they can be hidden, which is a
+     * decision the owner made rather than something that crept in.
+     *
+     * Three things keep it honest:
+     *   - The class is OURS ("concierge-hidden"), never Jellyfin Enhanced's
+     *     "section-hidden". Sharing their class would mean their Seerr-only filter
+     *     un-hiding our sections and ours un-hiding theirs.
+     *   - Every element hidden is remembered, and only those are restored. We never
+     *     un-hide something we did not hide.
+     *   - Nothing is hidden unless our row actually has something in it, so a failed
+     *     search can never leave an empty page behind.
+     *
+     * The Jellyseerr rows stay visible on purpose: a search that finds nothing you
+     * own should still offer what you could request, without leaving the mode. */
+    var hiddenSections = [];
     // Jellyfin's own search waits 500ms because its requests are free. Concierge's
     // full path spends money, so it needs a genuinely settled query rather than a
     // slightly later copy of every prefix the native client searched. Enter still
@@ -101,6 +128,34 @@
         'background:rgba(0,0,0,.72);color:#fff;border-radius:.25em;padding:.1em .4em;' +
         'font-size:.78em;}';
 
+    var MODE_STYLES =
+        '.concierge-hidden{display:none!important;}' +
+
+        // The chip. Shaped like the client's own pill controls rather than invented,
+        // and it states which mode it is IN, not which one it would switch to.
+        '#concierge-toggle{display:inline-flex;align-items:center;gap:.4em;' +
+        'margin:0 0 0 .6em;padding:.32em .8em;border:1px solid currentColor;' +
+        'border-radius:1.2em;background:transparent;color:inherit;cursor:pointer;' +
+        'font:inherit;font-size:.86em;opacity:.62;vertical-align:middle;' +
+        'transition:opacity .15s,background-color .15s;}' +
+        '#concierge-toggle:hover{opacity:.9;}' +
+        '#concierge-toggle[aria-pressed="true"]{opacity:1;' +
+        'background:rgba(127,127,127,.22);}' +
+
+        // Full mode: the row stops being a row. A grid that fills the page is the
+        // whole reason for taking it over — a horizontal strip in a page with
+        // nothing else in it would just be a strip with white space under it.
+        '#concierge-results.concierge-full .concierge-scroller{overflow:visible;}' +
+        '#concierge-results.concierge-full .concierge-row{display:grid;' +
+        'grid-template-columns:repeat(auto-fill,minmax(10.5em,1fr));gap:.2em 0;' +
+        'overflow:visible;}' +
+        '#concierge-results.concierge-full .concierge-card{width:auto;}' +
+
+        // Room to say why properly, now that there is room.
+        '#concierge-results.concierge-full .concierge-why{-webkit-line-clamp:4;' +
+        'min-height:0;font-size:.84em;}' +
+        '#concierge-results.concierge-full .concierge-heading{font-size:1.4em;}';
+
     function ensureStyles() {
         if (document.getElementById('concierge-styles')) {
             return;
@@ -108,7 +163,7 @@
 
         var style = document.createElement('style');
         style.id = 'concierge-styles';
-        style.textContent = STYLES;
+        style.textContent = STYLES + MODE_STYLES;
         document.head.appendChild(style);
     }
 
@@ -235,6 +290,94 @@
             '.verticalSection:not(.jellyseerr-section):not(#' + CONTAINER_ID + ')');
 
         return sections.length ? sections[sections.length - 1] : null;
+    }
+
+    function modeOn() {
+        try {
+            return window.localStorage.getItem(MODE_KEY) === '1';
+        } catch (e) {
+            // Private browsing, or storage disabled. The mode simply does not
+            // persist; it must not take the search box down with it.
+            return false;
+        }
+    }
+
+    function setMode(on) {
+        try {
+            window.localStorage.setItem(MODE_KEY, on ? '1' : '0');
+        } catch (e) { /* see above */ }
+    }
+
+    /* Hide the library's own rows, remembering exactly which ones.
+     *
+     * Only ever called with something already in our row, so a search that fails or
+     * returns nothing cannot leave a page with nothing on it. Jellyseerr is skipped
+     * by name: those are things you could request, which is still worth seeing when
+     * the library has nothing. */
+    function applyMode(page) {
+        var el = page.querySelector('#' + CONTAINER_ID);
+        var showing = !!el && el.innerHTML !== '';
+        var wanted = modeOn() && showing;
+
+        if (el) {
+            el.classList.toggle('concierge-full', wanted);
+        }
+
+        if (!wanted) {
+            restoreSections();
+            return;
+        }
+
+        Array.prototype.forEach.call(page.querySelectorAll('.verticalSection'), function (s) {
+            if (s.id === CONTAINER_ID
+                || s.classList.contains('jellyseerr-section')
+                || s.classList.contains('concierge-hidden')) {
+                return;
+            }
+
+            s.classList.add('concierge-hidden');
+            hiddenSections.push(s);
+        });
+    }
+
+    // Only what we hid, and only our class. Anything else on the page that is
+    // hidden was hidden by somebody else and is not ours to reveal.
+    function restoreSections() {
+        for (var i = 0; i < hiddenSections.length; i++) {
+            hiddenSections[i].classList.remove('concierge-hidden');
+        }
+
+        hiddenSections = [];
+    }
+
+    function toggle(page) {
+        var fields = page.querySelector('.searchFields .inputContainer')
+            || page.querySelector('.searchFields')
+            || page;
+
+        if (page.querySelector('#' + TOGGLE_ID)) {
+            return;
+        }
+
+        var button = document.createElement('button');
+        button.id = TOGGLE_ID;
+        button.type = 'button';
+        button.title = 'Show only what Concierge found in your library';
+        button.setAttribute('aria-pressed', modeOn() ? 'true' : 'false');
+        button.textContent = '\u2726 Concierge';
+
+        button.addEventListener('click', function () {
+            var next = !modeOn();
+            setMode(next);
+            button.setAttribute('aria-pressed', next ? 'true' : 'false');
+
+            var current = searchPage();
+            if (current) {
+                applyMode(current);
+            }
+        });
+
+        fields.appendChild(button);
     }
 
     function itemLink(id) {
@@ -490,6 +633,7 @@
             // claims work is happening when it has finished and found nothing.
             el.innerHTML = '';
             el.classList.remove('concierge-working');
+            restoreSections();
             return;
         }
 
@@ -510,6 +654,7 @@
 
         el.innerHTML = html;
         slideFrom(el, before);
+        applyMode(searchPage());
     }
 
     /* The row before there is anything to put in it.
@@ -527,6 +672,7 @@
         el.classList.add('concierge-working');
         el.classList.remove('concierge-pending');
         el.innerHTML = section('Concierge matches' + thinkingLabel(), skeletonCards(7));
+        applyMode(searchPage());
     }
 
     /* The free answer, on its own.
@@ -618,6 +764,9 @@
             el.classList.remove('concierge-pending');
             el.classList.remove('concierge-working');
         }
+
+        // Nothing of ours on screen means nothing of theirs should be hidden for it.
+        restoreSections();
     }
 
     function ourSection() {
@@ -699,6 +848,7 @@
             return;
         }
 
+        toggle(page);
         input.dataset.conciergeBound = '1';
         input.addEventListener('input', function (e) { onInput(e.target.value); });
         input.addEventListener('keydown', function (e) {
@@ -717,7 +867,16 @@
     /* A MutationObserver rather than a route hook: Jellyfin's client has no stable
      * public event for "the search view is ready", and observing is inert when
      * nothing changes. It only ever reads. */
-    var observer = new MutationObserver(function () { attach(); });
+    var observer = new MutationObserver(function () {
+        attach();
+
+        // Routing away disposes the page, and with it every node we hid. Dropping
+        // the list here means a stale reference can never be un-hidden onto a page
+        // that has moved on.
+        if (!searchPage() && hiddenSections.length) {
+            hiddenSections = [];
+        }
+    });
 
     function start() {
         ensureStyles();

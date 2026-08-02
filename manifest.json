@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.16.0.0",
+        "changelog": "Concierge mode: a toggle on the search page that hides the library's own rows and gives Concierge the full page as a grid. Jellyseerr stays. Toggle off and the page comes back exactly.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.16.0.0/concierge_0.16.0.0.zip",
+        "checksum": "146d09c5378a75f993cc4c7ddf7bfe76",
+        "timestamp": "2026-08-02T10:39:22Z"
+      },
+      {
         "version": "0.15.0.0",
         "changelog": "The row shows its work: skeleton cards while the free answer loads, a light sweep while the model ranks, and cards that slide into their new positions when the ranking lands.",
         "targetAbi": "10.11.11.0",

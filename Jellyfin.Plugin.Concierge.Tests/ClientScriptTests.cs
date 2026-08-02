@@ -284,6 +284,64 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 ".concierge-card[data-concierge-id]", Script, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// Concierge mode is where the one rule is relaxed, so it is where the
+        /// guardrails have to be assertions rather than intentions.
+        /// </summary>
+        /// <remarks>
+        /// Hiding another plugin's work is the failure this whole script was written
+        /// to avoid. Doing it on purpose is defensible; doing it with a class we do
+        /// not own, or without remembering what we hid, is how a page ends up with
+        /// sections nobody can bring back.
+        /// </remarks>
+        [Fact]
+        public void ConciergeModeHidesWithItsOwnClassAndNobodyElses()
+        {
+            var code = WithoutComments(Script);
+
+            Assert.Contains("concierge-hidden", code, StringComparison.Ordinal);
+
+            // Jellyfin Enhanced's class. Sharing it would mean its Seerr-only filter
+            // un-hiding our sections and ours un-hiding its.
+            Assert.DoesNotContain("section-hidden", code, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ConciergeModeNeverHidesJellyseerrOrItself()
+        {
+            var apply = Between(Script, "function applyMode(", "function restoreSections(");
+
+            Assert.Contains("jellyseerr-section", apply, StringComparison.Ordinal);
+            Assert.Contains("s.id === CONTAINER_ID", apply, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void EverythingHiddenIsRememberedAndOnlyThatIsRestored()
+        {
+            var apply = Between(Script, "function applyMode(", "function restoreSections(");
+            var restore = Between(Script, "function restoreSections(", "function toggle(");
+
+            Assert.Contains("hiddenSections.push(s)", apply, StringComparison.Ordinal);
+
+            // Restores from the list, never from a selector — a selector would sweep
+            // up whatever else on the page happened to match.
+            Assert.Contains("hiddenSections[i].classList.remove", restore, StringComparison.Ordinal);
+            Assert.DoesNotContain("querySelector", restore, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// A failed search must never leave a page with nothing on it.
+        /// </summary>
+        [Fact]
+        public void NothingIsHiddenUnlessConciergeActuallyHasSomethingToShow()
+        {
+            var apply = Between(Script, "function applyMode(", "function restoreSections(");
+
+            Assert.Contains("el.innerHTML !== ''", apply, StringComparison.Ordinal);
+            Assert.Contains("modeOn() && showing", apply, StringComparison.Ordinal);
+            Assert.Contains("restoreSections()", apply, StringComparison.Ordinal);
+        }
+
         [Fact]
         public void ThePreviewFiresLongBeforeThePaidSearch()
         {
