@@ -310,7 +310,8 @@ namespace Jellyfin.Plugin.Concierge.Services
 
                         foreach (var entry in outcome.Order.Where(o => o.Why.Length > 0))
                         {
-                            explanations[shortlist[entry.Index].ItemId] = entry.Why;
+                            explanations[shortlist[entry.Index].ItemId] =
+                                Shorten(entry.Why, config.RerankWhyMaxChars);
                         }
 
                         reranked = true;
@@ -442,6 +443,38 @@ namespace Jellyfin.Plugin.Concierge.Services
         }
 
         /// <summary>
+        /// Holds a reason to its limit.
+        /// </summary>
+        /// <param name="why">What the model wrote.</param>
+        /// <param name="maxChars">The limit, in characters.</param>
+        /// <returns>The reason, cut at a word boundary if it was too long.</returns>
+        /// <remarks>
+        /// Asking is not the same as being obeyed. The prompt has asked for brevity
+        /// since the first release and the model has been writing roughly two and a
+        /// half times the requested length throughout, so the limit is also applied
+        /// here — where it is a fact rather than a request.
+        /// <para>
+        /// This does not save any time: the tokens were already generated and paid
+        /// for by the time we see them. It exists so that a model ignoring the limit
+        /// costs latency and not a broken card.
+        /// </para>
+        /// </remarks>
+        public static string Shorten(string why, int maxChars)
+        {
+            var limit = Math.Max(10, maxChars);
+
+            if (string.IsNullOrEmpty(why) || why.Length <= limit)
+            {
+                return why ?? string.Empty;
+            }
+
+            var cut = why[..limit];
+            var space = cut.LastIndexOf(' ');
+
+            return (space > limit / 2 ? cut[..space] : cut).TrimEnd(',', ';', ' ', '-') + "\u2026";
+        }
+
+        /// <summary>
         /// How many results to show.
         /// </summary>
         /// <param name="config">The effective configuration.</param>
@@ -496,7 +529,11 @@ namespace Jellyfin.Plugin.Concierge.Services
                 // call could read back from a cache — everything goes in the prefix and
                 // no cache marker is written.
                 var prompt = RerankPromptBuilder.BuildCandidates(shortlist)
-                    + RerankPromptBuilder.BuildInstruction(query, shortlist.Count);
+                    + RerankPromptBuilder.BuildInstruction(
+                        query,
+                        shortlist.Count,
+                        config.RerankWhyMaxChars,
+                        config.RerankExplainCount);
 
                 var request = new LlmRequest(
                     RerankPromptBuilder.SystemPrompt,

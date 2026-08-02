@@ -205,6 +205,35 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// </remarks>
         public int RerankShortlistSize { get; set; } = 40;
 
+        /// <summary>
+        /// The longest a match reason may be, in characters.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is the latency dial.</b> Re-rank latency is generated tokens and
+        /// nothing else — measured at +0.937 correlation across 80 calls, at a flat
+        /// ~166 tokens per second — and the reasons are almost all of the output. The
+        /// prompt asked for eight words and got 609 tokens where 240 was warranted,
+        /// because a limit stated in a rule list is a suggestion.
+        /// <para>
+        /// Stated in the response shape and enforced on the way out, so a model that
+        /// writes an essay cannot make a card unreadable. Roughly: 60 characters is a
+        /// clause, 120 is a sentence, and every 40 characters across a full row of
+        /// results is about a tenth of a second of waiting.
+        /// </para>
+        /// </remarks>
+        public int RerankWhyMaxChars { get; set; } = 60;
+
+        /// <summary>
+        /// How many of the ranked results get a reason written for them.
+        /// </summary>
+        /// <remarks>
+        /// The ordering costs about six tokens an entry; a reason costs forty. The row
+        /// shows eight cards before it scrolls, so writing reasons for all twenty
+        /// spends most of the output on text nobody scrolls to. Zero means every
+        /// result gets one.
+        /// </remarks>
+        public int RerankExplainCount { get; set; } = 8;
+
         // ── Spending ─────────────────────────────────────────────────────────────
 
         /// <summary>

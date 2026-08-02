@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Concierge.Configuration;
 using Jellyfin.Plugin.Concierge.Core.Llm;
+using Jellyfin.Plugin.Concierge.Core.Ranking;
 using Jellyfin.Plugin.Concierge.Services.Llm;
 using Jellyfin.Plugin.Concierge.Services;
 using Xunit;
@@ -50,6 +51,81 @@ namespace Jellyfin.Plugin.Concierge.Tests
             // …including when the ceiling is below the floor, which a caller asking
             // for two results is entitled to do.
             Assert.Equal(2, SearchService.HowManyToShow(Config(maxResults: 2), rankedByModel: 1));
+        }
+    }
+
+    /// <summary>
+    /// The output limits: the dial on how long a search takes.
+    /// </summary>
+    public class RerankOutputLimitTests
+    {
+        [Theory]
+        [InlineData("amnesia, tattoos, told backwards")]
+        [InlineData("")]
+        public void AReasonInsideTheLimitIsLeftExactlyAsWritten(string why)
+        {
+            Assert.Equal(why, SearchService.Shorten(why, 60));
+        }
+
+        [Fact]
+        public void AnOverlongReasonIsCutAtAWordBoundary()
+        {
+            var why = "a lonely hitman falls for the woman he was sent to kill in postwar Vienna";
+            var cut = SearchService.Shorten(why, 40);
+
+            Assert.True(cut.Length <= 41, cut);
+            Assert.EndsWith("\u2026", cut, StringComparison.Ordinal);
+            Assert.DoesNotContain("  ", cut, StringComparison.Ordinal);
+
+            // Cut between words, not through one.
+            Assert.StartsWith(cut[..^1].TrimEnd('\u2026'), why, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ASingleUnbrokenWordIsStillCut()
+        {
+            var cut = SearchService.Shorten(new string('x', 200), 30);
+
+            Assert.True(cut.Length <= 31, cut.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// The limit reaches the model, not just the truncator.
+        /// </summary>
+        /// <remarks>
+        /// Cutting text on the way out saves nothing — those tokens were generated
+        /// and paid for already. The saving only happens if the model is told, in the
+        /// response shape it is looking at while it writes.
+        /// </remarks>
+        [Fact]
+        public void TheLimitIsStatedWhereTheModelIsWriting()
+        {
+            var instruction = RerankPromptBuilder.BuildInstruction(
+                "dark and twisted", 40, whyMaxChars: 45, explainCount: 6);
+
+            Assert.Contains("45 characters", instruction, StringComparison.Ordinal);
+            Assert.Contains("<= 45 chars", instruction, StringComparison.Ordinal);
+            Assert.Contains("first 6", instruction, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ZeroExplainsEveryResultRatherThanNone()
+        {
+            var instruction = RerankPromptBuilder.BuildInstruction(
+                "dark and twisted", 40, whyMaxChars: 60, explainCount: 0);
+
+            Assert.Contains(
+                "first " + RerankPromptBuilder.DefaultReturned.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture),
+                instruction,
+                StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ANonsenseLimitCannotProduceAnEmptyReason()
+        {
+            Assert.Contains("10 characters", RerankPromptBuilder.BuildInstruction("q", 5, 0, 8), StringComparison.Ordinal);
+            Assert.NotEmpty(SearchService.Shorten("a real reason here", 0));
         }
     }
 

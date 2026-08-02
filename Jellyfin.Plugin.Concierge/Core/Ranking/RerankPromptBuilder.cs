@@ -55,11 +55,10 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
               costs nothing — but never reorder something into a place you cannot
               justify.
             - Use each number at most once. Never invent a number that is not listed.
-            - "why" is one clause, at most eight words, naming what actually connects
-              it to the search: "amnesia, tattoos, told backwards" or "the polite bear
-              one". Not a review, not a plot summary, not "matches your search".
-              Brevity here is not a style note — every word costs the searcher
-              waiting time.
+            - "why" is a fragment, not a sentence: "amnesia, tattoos, told backwards"
+              or "the polite bear one". Not a review, not a plot summary, not "matches
+              your search". The length limit given below is a hard limit, not a
+              target — every character is time the searcher spends waiting.
             - NEVER put a twist, an ending, or a death in "why". Some entries below
               include spoilers so you can rank them correctly; they exist for your
               judgement only and the searcher will read what you write. If the only
@@ -142,8 +141,20 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
         /// <param name="query">What the searcher typed.</param>
         /// <param name="count">How many candidates are listed.</param>
         /// <returns>The trailing instruction.</returns>
-        public static string BuildInstruction(string query, int count)
+        /// <param name="query">What the searcher typed.</param>
+        /// <param name="count">How many candidates are listed.</param>
+        /// <param name="whyMaxChars">The hard limit on a reason, in characters.</param>
+        /// <param name="explainCount">How many entries get a reason; 0 means all.</param>
+        /// <returns>The trailing instruction.</returns>
+        public static string BuildInstruction(
+            string query,
+            int count,
+            int whyMaxChars = 60,
+            int explainCount = 8)
         {
+            var limit = Math.Max(10, whyMaxChars);
+            var explained = explainCount <= 0 ? DefaultReturned : Math.Min(explainCount, DefaultReturned);
+
             return string.Create(
                 CultureInfo.InvariantCulture,
                 $"""
@@ -154,7 +165,31 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
                 the ones you would actually show, best first, and no more than genuinely
                 answer the search. Returning four is a better answer than padding to
                 twenty. The rest keep the order search gave them.
-                """) + "\n" + ResponseTemplate;
+
+                Write "why" for the first {explained} only. After that send the number
+                alone: the rest are below the fold and nobody reads a reason they have
+                to scroll to. No "why" may exceed {limit} characters.
+                """) + "\n" + Template(limit);
+        }
+
+        /// <summary>
+        /// The shape asked for in prose, carrying the length limit.
+        /// </summary>
+        /// <remarks>
+        /// The limit belongs <b>here</b>, not only in the rules above. This is the
+        /// text the model is looking at as it decides how long to make the string, and
+        /// a constraint three bullets earlier is one it has already read past. The
+        /// same limit stated in the same place cut nothing when it lived up there.
+        /// </remarks>
+        public static string Template(int whyMaxChars)
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $$"""
+                Respond with JSON only. "why" is at most {{whyMaxChars}} characters,
+                and is omitted entirely after the first few:
+                {"order":[{"i":0,"why":"<= {{whyMaxChars}} chars"},{"i":7}]}
+                """);
         }
 
         /// <summary>

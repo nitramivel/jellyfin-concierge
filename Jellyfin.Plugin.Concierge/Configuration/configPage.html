@@ -134,6 +134,7 @@
                             <select is="emby-select" id="ModelProfileSelect" class="emby-select-withcolor emby-select"></select>
                         </div>
                         <button is="emby-button" type="button" id="ModelProfileAdd" class="raised">Add</button>
+                        <button is="emby-button" type="button" id="ModelProfileUse" class="raised">Use this one</button>
                         <button is="emby-button" type="button" id="ModelProfileDuplicate" class="raised">Duplicate</button>
                         <button is="emby-button" type="button" id="ModelProfileRemove" class="raised">Remove</button>
                     </div>
@@ -478,6 +479,29 @@
                         <div class="fieldDescription">The biggest single lever on what a paid search costs.</div>
                     </div>
 
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="RerankWhyMaxChars">Longest match reason (characters)</label>
+                        <input id="RerankWhyMaxChars" type="number" step="10" min="10" max="300" class="emby-input" />
+                        <div class="fieldDescription">
+                            The biggest single lever on how long a search takes. Time here is the model
+                            writing, at about 166 characters a second — so 60 characters across a row of
+                            results is roughly a second of waiting, and 200 is roughly three. Shorter
+                            reasons are also better reasons: "amnesia, tattoos, told backwards" beats a
+                            sentence.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="RerankExplainCount">Results that get a reason</label>
+                        <input id="RerankExplainCount" type="number" step="1" min="0" max="20" class="emby-input" />
+                        <div class="fieldDescription">
+                            Putting a result in order costs almost nothing; writing why it matched costs
+                            about six times as much. The row shows eight cards before it scrolls, so
+                            explaining all twenty spends most of the wait on text nobody scrolls to.
+                            0 explains every result.
+                        </div>
+                    </div>
+
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label class="emby-checkbox-label">
                             <input is="emby-checkbox" type="checkbox" id="LogQueryText" />
@@ -663,6 +687,22 @@
                 return out;
             }
 
+            // Read off the DOM rather than a variable: the select is the one place
+            // that always holds the current answer, including mid-edit.
+            function setSelectValue(select, value) {
+                for (var i = 0; i < select.options.length; i++) {
+                    if (select.options[i].value === value) {
+                        select.selectedIndex = i;
+                        return;
+                    }
+                }
+            }
+
+            function defaultModelIdInUse() {
+                var select = document.querySelector('#DefaultModelProfileId');
+                return select ? select.value : '';
+            }
+
             function resolveDefaultId(profiles, wanted) {
                 var found = profiles.some(function (p) { return p.Id === wanted; });
                 if (found) {
@@ -690,6 +730,14 @@
                 return null;
             }
 
+            /* Which profile is IN USE, not merely which one is open in the editor.
+             *
+             * These are two different things and the page did not say so. Picking a
+             * profile in the selector changes what you are editing; the model
+             * Concierge actually calls is whatever "Default profile" points at. On
+             * reload the editor reopens on the default — so choosing Gemini, saving,
+             * and coming back to find GPT looked exactly like the save had failed,
+             * when nothing had been asked to change. */
             function fillProfileSelect(select, profiles, selectedId, blankLabel) {
                 var options = [];
                 if (blankLabel) {
@@ -699,8 +747,9 @@
 
                 profiles.forEach(function (profile) {
                     var selected = profile.Id === selectedId ? ' selected' : '';
+                    var inUse = profile.Id === defaultModelIdInUse() ? ' \u2014 in use' : '';
                     options.push('<option value="' + escapeHtml(profile.Id) + '"' + selected + '>'
-                        + escapeHtml(describeProfile(profile)) + '</option>');
+                        + escapeHtml(describeProfile(profile) + inUse) + '</option>');
                 });
 
                 select.innerHTML = options.join('');
@@ -762,6 +811,10 @@
                 page.querySelector('#ModelProfileEmpty').classList.toggle('hide', !!profile);
                 page.querySelector('#ModelProfileRemove').disabled = !profile;
                 page.querySelector('#ModelProfileDuplicate').disabled = !profile;
+
+                var use = page.querySelector('#ModelProfileUse');
+                use.disabled = !profile || profile.Id === defaultModelIdInUse();
+                use.textContent = use.disabled ? 'In use' : 'Use this one';
 
                 if (!profile) {
                     return;
@@ -878,6 +931,9 @@
                 page.querySelector('#PaidQueriesPerUserPerHour').value =
                     config.PaidQueriesPerUserPerHour === undefined ? 30 : config.PaidQueriesPerUserPerHour;
                 page.querySelector('#RerankShortlistSize').value = config.RerankShortlistSize || 40;
+                page.querySelector('#RerankWhyMaxChars').value = config.RerankWhyMaxChars || 60;
+                page.querySelector('#RerankExplainCount').value =
+                    config.RerankExplainCount === 0 ? 0 : (config.RerankExplainCount || 8);
                 page.querySelector('#QueryCacheSize').value =
                     config.QueryCacheSize === undefined ? 200 : config.QueryCacheSize;
                 page.querySelector('#LogQueryText').checked = config.LogQueryText !== false;
@@ -924,6 +980,12 @@
                     config.PaidQueriesPerUserPerHour =
                         parseInt(page.querySelector('#PaidQueriesPerUserPerHour').value, 10) || 0;
                     config.RerankShortlistSize = parseInt(page.querySelector('#RerankShortlistSize').value, 10) || 40;
+                    config.RerankWhyMaxChars = parseInt(page.querySelector('#RerankWhyMaxChars').value, 10) || 60;
+
+                    // Zero is a real answer here — "explain everything" — so it cannot
+                    // fall through an || to the default the way the others do.
+                    var explain = parseInt(page.querySelector('#RerankExplainCount').value, 10);
+                    config.RerankExplainCount = isNaN(explain) ? 8 : explain;
                     config.QueryCacheSize = parseInt(page.querySelector('#QueryCacheSize').value, 10) || 200;
                     config.LogQueryText = page.querySelector('#LogQueryText').checked;
 
@@ -978,6 +1040,20 @@
                 modelProfiles.push(profile);
                 activeModelId = profile.Id;
                 renderAll(page);
+            });
+
+            /* The button the profile selector looked like it already was.
+             *
+             * Points "Default profile" at whatever is open in the editor, so choosing
+             * Gemini and pressing this does the thing choosing Gemini appeared to do.
+             * Still needs Save — nothing on this page writes without it. */
+            page.querySelector('#ModelProfileUse').addEventListener('click', function () {
+                captureModelEditor(page);
+
+                if (activeModelId) {
+                    setSelectValue(page.querySelector('#DefaultModelProfileId'), activeModelId);
+                    renderAll(page);
+                }
             });
 
             page.querySelector('#ModelProfileDuplicate').addEventListener('click', function () {
