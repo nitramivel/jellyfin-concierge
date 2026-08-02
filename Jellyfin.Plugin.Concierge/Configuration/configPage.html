@@ -68,6 +68,8 @@
                    tab it was on. The stripes move so a bar that has not advanced in
                    a while still reads as working rather than stuck. */
                 .conciergeRunning { border-left: 3px solid #00a4dc; }
+                .conciergeBehind { border-left: 3px solid #e8a33d; }
+                .conciergeChip.is-pending { background: rgba(232,163,61,0.28); }
                 @keyframes conciergeCrawl { to { background-position: 28px 0; } }
                 .conciergeRunning .conciergeTrack {
                     background-image: linear-gradient(115deg,
@@ -144,6 +146,8 @@
                             <button is="emby-button" type="button" id="ConciergeRefreshStatus" class="raised">Refresh</button>
                         </div>
                     </div>
+
+                    <div id="ConciergeBehind" class="conciergeEditor conciergeBehind hide"></div>
 
                     <div id="ConciergeRunning" class="conciergeEditor conciergeRunning hide">
                         <div id="ConciergeRunningPhase"><strong>Building&hellip;</strong></div>
@@ -543,6 +547,7 @@
                                 class="emby-select-withcolor emby-select" style="flex:0 1 15em;">
                             <option value="all">Everything</option>
                             <option value="noasks">Nothing to search on</option>
+                            <option value="pending">Waiting to be indexed</option>
                             <option value="unknown">Unknown to the model</option>
                             <option value="spoiler">Carries a spoiler</option>
                             <option value="quotes">Has dialogue</option>
@@ -1898,10 +1903,14 @@
              * rebuild would have been stopped in its first minute if the panel had
              * said "claude-opus-5" and "$3.59 to finish" instead of "11%". */
             function runningDetail(run) {
+                // Against what the run set out to enrich, not the library size. Most
+                // builds re-enrich a handful of changed items out of hundreds, so
+                // "3 of 264" reads as a stall when it is nearly finished.
+                var target = run.ItemsPlanned || run.ItemsIndexed;
                 var parts = [escapeHtml(String(run.ItemsEnriched)) + ' enriched'];
 
-                if (run.ItemsIndexed) {
-                    parts[0] += ' of ' + escapeHtml(String(run.ItemsIndexed));
+                if (target) {
+                    parts[0] += ' of ' + escapeHtml(String(target));
                 }
 
                 parts.push(escapeHtml(money(run.CostUsd)) + ' spent');
@@ -2160,6 +2169,10 @@
                     chips.push('<span class="conciergeChip is-good">' + item.Cues + ' lines</span>');
                 }
 
+                if (item.Pending) {
+                    chips.push('<span class="conciergeChip is-pending">not indexed</span>');
+                }
+
                 if (item.Spoiler) {
                     chips.push('<span class="conciergeChip is-warn">spoiler</span>');
                 }
@@ -2173,6 +2186,7 @@
 
             function libraryMatches(item, needle, show) {
                 if (show === 'noasks' && item.Asks) { return false; }
+                if (show === 'pending' && !item.Pending) { return false; }
                 if (show === 'unknown' && item.Enriched) { return false; }
                 if (show === 'spoiler' && !item.Spoiler) { return false; }
                 if (show === 'quotes' && !item.Cues) { return false; }
@@ -2255,9 +2269,23 @@
                     html += list('Moments', d.MomentList);
 
                     // The asks are the point. Everything else is context for them.
-                    html += list('Asks — what a vague search is matched against', d.AskList);
+                    html += list(
+                        i.Pending
+                            ? 'Asks — stored, but NOT yet searchable'
+                            : 'Asks — what a vague search is matched against',
+                        d.AskList);
 
-                    html += '<h4>Embedded rows <span class="conciergeRunMeta">the exact text searched against</span></h4>';
+                    if (i.Pending) {
+                        html += '<div class="conciergeRunMeta">These were written by the last '
+                            + 'enrichment run and have not been embedded. The rows below are what a '
+                            + 'search actually compares against today.</div>';
+                    }
+
+                    html += '<h4>Embedded rows <span class="conciergeRunMeta">'
+                        + (i.Pending
+                            ? 'what search uses today — from an older build'
+                            : 'the exact text searched against')
+                        + '</span></h4>';
                     if (d.VectorRows && d.VectorRows.length) {
                         d.VectorRows.forEach(function (r) {
                             html += '<div><strong>' + escapeHtml(r.Kind) + '</strong>'
@@ -2333,6 +2361,31 @@
                             + 'search on · ' + escapeHtml(String(view.WithQuotes)) + ' with dialogue · '
                             + 'index generation ' + escapeHtml(String(view.Generation))
                         : '';
+
+                    // Enrichment that is paid for and not embedded is money already
+                    // spent that no search can reach. It is a legitimate state — a
+                    // cancelled run banking its work — and an invisible one, so it
+                    // gets said out loud on every tab rather than inferred from two
+                    // lists disagreeing.
+                    var behind = page.querySelector('#ConciergeBehind');
+                    if (view.Pending > 0) {
+                        behind.classList.remove('hide');
+                        behind.innerHTML = '<strong>' + escapeHtml(String(view.Pending))
+                            + ' item(s) have enrichment the index has not embedded yet.</strong>'
+                            + '<div class="conciergeRunMeta" style="margin-top:0.35em;">'
+                            + 'Searches are still using the answers from index generation '
+                            + escapeHtml(String(view.Generation)) + ', built '
+                            + escapeHtml(new Date(view.IndexBuiltUtc).toLocaleString())
+                            + (view.EnrichmentNewestUtc
+                                ? '. The newest enrichment was written '
+                                  + escapeHtml(new Date(view.EnrichmentNewestUtc).toLocaleString())
+                                : '')
+                            + '. Nothing is lost and nothing will be paid for twice &mdash; run the index '
+                            + 'build to embed it. The enrichment is cached, so only the embedding is left.'
+                            + '</div>';
+                    } else {
+                        behind.classList.add('hide');
+                    }
 
                     if (!libraryItems.length) {
                         page.querySelector('#ConciergeLibraryList').innerHTML =

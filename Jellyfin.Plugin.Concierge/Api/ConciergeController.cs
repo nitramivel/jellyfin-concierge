@@ -364,14 +364,16 @@ namespace Jellyfin.Plugin.Concierge.Api
 
             if (index is null)
             {
-                return Ok(new LibraryView([], 0, 0, 0, 0, 0));
+                return Ok(new LibraryView([], 0, 0, 0, 0, 0, null, default, 0));
             }
 
             var rows = CountRowsByItem(index);
             var cues = await CountCuesByItemAsync(cancellationToken).ConfigureAwait(false);
+            var embedded = EmbeddedAsksByItem(index);
+            var stored = await _store.LoadEnrichmentAsync(cancellationToken).ConfigureAwait(false);
 
             var items = index.Documents
-                .Select(d => Summarize(d, rows, cues))
+                .Select(d => Summarize(d, rows, cues, embedded))
                 .OrderBy(i => i.Title, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -385,6 +387,15 @@ namespace Jellyfin.Plugin.Concierge.Api
                 // beat.
                 items.Count(i => i.Asks == 0),
                 items.Count(i => i.Cues > 0),
+
+                // Enrichment can be paid for and stored without ever being embedded:
+                // a run that checkpoints and is then cancelled leaves exactly that.
+                // It is a legitimate state and an invisible one, which is the worst
+                // combination — searches quietly keep using the previous build's
+                // answers while the page shows the new ones.
+                items.Count(i => i.Pending),
+                stored.Count == 0 ? null : stored.Values.Max(e => e.GeneratedUtc),
+                index.State.BuiltUtc,
                 index.State.Generation));
         }
 
@@ -413,6 +424,7 @@ namespace Jellyfin.Plugin.Concierge.Api
             }
 
             var rows = CountRowsByItem(index);
+            var embedded = EmbeddedAsksByItem(index);
             var track = await _quotes.LoadAsync(itemId, cancellationToken).ConfigureAwait(false);
             var cues = new Dictionary<Guid, int>();
 
@@ -426,7 +438,7 @@ namespace Jellyfin.Plugin.Concierge.Api
             var provenance = Provenance(stored.GetValueOrDefault(itemId));
 
             return Ok(new LibraryItemDetail(
-                Summarize(document, rows, cues),
+                Summarize(document, rows, cues, embedded),
                 document.OriginalTitle,
                 document.Tags,
                 document.Studios,
@@ -480,12 +492,30 @@ namespace Jellyfin.Plugin.Concierge.Api
                 stored.SourceHash);
         }
 
-        private static LibraryItemSummary Summarize(
+        /// <summary>
+        /// Builds one item's list entry, including whether it is waiting to be indexed.
+        /// </summary>
+        /// <param name="document">The item.</param>
+        /// <param name="rows">Row counts by item.</param>
+        /// <param name="cues">Dialogue counts by item.</param>
+        /// <param name="embedded">The ask text actually embedded, by item.</param>
+        /// <returns>The entry.</returns>
+        internal static LibraryItemSummary Summarize(
             Core.Documents.ItemDocument document,
             IReadOnlyDictionary<Guid, int> rows,
-            IReadOnlyDictionary<Guid, int> cues)
+            IReadOnlyDictionary<Guid, int> cues,
+            IReadOnlyDictionary<Guid, List<string>> embedded)
         {
             var e = document.Enrichment;
+
+            // Compared against the embedded text rather than against a timestamp,
+            // because that is the question being asked: not "is this newer" but
+            // "would a search find what this page is showing".
+            var asks = e?.Asks ?? [];
+            var live = embedded.GetValueOrDefault(document.ItemId) ?? [];
+            var pending = !asks.Take(live.Count == 0 ? asks.Count : live.Count)
+                .Select(a => a.Trim())
+                .SequenceEqual(live.Select(a => a.Trim()), StringComparer.Ordinal);
 
             return new LibraryItemSummary(
                 document.ItemId,
@@ -500,7 +530,40 @@ namespace Jellyfin.Plugin.Concierge.Api
                 e?.Asks.Count ?? 0,
                 e?.Spoiler ?? false,
                 rows.GetValueOrDefault(document.ItemId),
-                cues.GetValueOrDefault(document.ItemId));
+                cues.GetValueOrDefault(document.ItemId),
+                pending);
+        }
+
+        /// <summary>
+        /// The ask text actually embedded, per item.
+        /// </summary>
+        /// <remarks>
+        /// This is what a search is compared against. The enrichment store is what the
+        /// last run wrote. They are the same thing only after a build has finished its
+        /// embedding phase, and a cancelled run leaves them apart indefinitely.
+        /// </remarks>
+        private static Dictionary<Guid, List<string>> EmbeddedAsksByItem(
+            Services.Indexing.ConciergeIndex index)
+        {
+            var asks = new Dictionary<Guid, List<string>>();
+
+            foreach (var source in index.Vectors.Sources)
+            {
+                if (source.Kind != Core.Retrieval.VectorRowKind.Ask)
+                {
+                    continue;
+                }
+
+                if (!asks.TryGetValue(source.ItemId, out var list))
+                {
+                    list = [];
+                    asks[source.ItemId] = list;
+                }
+
+                list.Add(source.Text);
+            }
+
+            return asks;
         }
 
         private static Dictionary<Guid, int> CountRowsByItem(

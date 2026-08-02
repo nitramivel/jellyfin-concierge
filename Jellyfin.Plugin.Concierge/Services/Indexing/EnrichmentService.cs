@@ -169,10 +169,21 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                         {
                             ["batch"] = i + 1,
                             ["batches"] = batches.Count,
-                            ["items"] = batches[i].Length,
-                            ["known"] = outcome.Known,
-                            ["unknown"] = outcome.Unknown,
-                            ["failed"] = outcome.Failed,
+
+                            // NOT "items". That key is lifted into the run's
+                            // library-wide count, so sending a batch size under it
+                            // rewrote "42 items" to "10" on the first batch and left
+                            // it there for the rest of the build.
+                            ["batchSize"] = batches[i].Length,
+
+                            // Cumulative, not this batch's. This is the key the
+                            // progress panel reads, and it is the only thing that
+                            // makes the enriched count climb while a run is going —
+                            // without it the panel sat on "0 enriched" throughout.
+                            ["enriched"] = known,
+                            ["batchKnown"] = outcome.Known,
+                            ["unknown"] = unknown,
+                            ["failed"] = failed,
                             ["batchCostUsd"] = decimal.Round(outcome.Cost, 6),
                             ["runningCostUsd"] = decimal.Round(cost, 6),
                         });

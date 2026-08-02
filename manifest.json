@@ -10,11 +10,11 @@
     "versions": [
       {
         "version": "0.23.0.0",
-        "changelog": "Thinking is now set per pass: leave it on for enrichment, where nobody is waiting and the answer is permanent, and off for searches, where the same tokens are pure delay. Call shape is a table like the model assignment, and says what thinking buys or costs on each pass. Also the Library tab: every indexed item and everything Concierge holds for it, tied to the build that wrote it, with an expandable build history and a live progress bar while a build runs. Folds in 0.19.0.0 through 0.22.0.0.",
+        "changelog": "Thinking is set per pass: on for enrichment, where nobody is waiting and the answer is permanent, off for searches, where the same tokens are pure delay. Warns when enrichment has been paid for but not embedded \u2014 a cancelled build banks its work and searches keep using the previous answers, which was invisible until now. Fixes a progress counter that read 0 enriched throughout a build and showed the batch size as the library size. Also the Library tab: every indexed item and everything Concierge holds for it, tied to the build that wrote it, with expandable build history. Folds in 0.19.0.0 through 0.22.0.0.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.23.0.0/concierge_0.23.0.0.zip",
-        "checksum": "6cc9eeaad0d039136d554e38a1bf4585",
-        "timestamp": "2026-08-02T22:14:15Z"
+        "checksum": "873187a59e38c70b3e031168935251cb",
+        "timestamp": "2026-08-02T22:22:55Z"
       },
       {
         "version": "0.18.0.0",

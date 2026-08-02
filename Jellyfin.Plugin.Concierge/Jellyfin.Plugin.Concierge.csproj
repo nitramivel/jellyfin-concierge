@@ -11,6 +11,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The tests assert on decisions that have no business being public API but
+         every business being covered — "is this item waiting to be indexed" is one
+         of them, and getting it wrong recreates the invisible state it exists to
+         expose. -->
+    <InternalsVisibleTo Include="Jellyfin.Plugin.Concierge.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Web\concierge.js" />
   </ItemGroup>

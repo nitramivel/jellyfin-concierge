@@ -165,6 +165,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
             d.Phase,
             d.ItemsIndexed,
             d.ItemsEnriched,
+            d.ItemsPlanned,
             d.RowsEmbedded,
             d.RowsReused,
             d.Totals.TotalCostUsd,
@@ -288,6 +289,11 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
                         // they arrive, so a summary needs no knowledge of step names.
                         if (detail is not null)
                         {
+                            // These five key names are effectively public API for
+                            // steps. Any step sending one of them rewrites a headline
+                            // counter, with no error and no clue — "items" meaning
+                            // "batch size" in one step cost a build's worth of wrong
+                            // progress before anybody noticed.
                             Lift(detail, "items", v => _document.ItemsIndexed = v);
                             Lift(detail, "enriched", v => _document.ItemsEnriched = v);
                             Lift(detail, "stale", v => _document.ItemsPlanned = v);

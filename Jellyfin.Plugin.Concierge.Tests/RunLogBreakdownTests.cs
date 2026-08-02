@@ -14,6 +14,137 @@ using Xunit;
 namespace Jellyfin.Plugin.Concierge.Tests
 {
     /// <summary>
+    /// The counters the live progress panel reads.
+    /// </summary>
+    /// <remarks>
+    /// Step detail keys are lifted into headline counters by name, silently. A step
+    /// that sends "items" meaning "batch size" rewrites the library-wide count and
+    /// nothing complains — which is exactly what happened: a build showed "0 enriched
+    /// of 42", then "0 enriched of 10" from the first batch onward, and the enriched
+    /// figure never moved because no step reported one until the run ended.
+    /// </remarks>
+    public class RunProgressCountersTests : IDisposable
+    {
+        private readonly string _root = Path.Combine(
+            Path.GetTempPath(), "concierge-progress-" + Guid.NewGuid().ToString("N")[..8]);
+
+        private static readonly Dictionary<string, object?> NoSettings = [];
+
+        private IIndexRunLogStore? _store;
+
+        private IIndexRunLog Begin()
+        {
+            _store = new IndexRunLogStore(new StubPaths(_root), NullLogger<IndexRunLogStore>.Instance);
+            return _store.Begin("scheduled", NoSettings);
+        }
+
+        // From memory, deliberately: this is what the live panel polls, and steps are
+        // only flushed to disk every few calls. Reading the file would test the
+        // flush interval rather than the counters.
+        private IndexRunSummary Current() => _store!.Current()!;
+
+        [Fact]
+        public void ABatchStepDoesNotRewriteTheLibraryWideCount()
+        {
+            var log = Begin();
+
+            log.Step("library.scanned", "42 items", new Dictionary<string, object?> { ["items"] = 42 });
+            log.Step("enrichment.planned", "42 to do", new Dictionary<string, object?> { ["stale"] = 42 });
+
+            // A batch of ten out of forty-two. The library is still forty-two.
+            log.Step("enrichment.batch", "batch 1", new Dictionary<string, object?>
+            {
+                ["batch"] = 1,
+                ["batchSize"] = 10,
+                ["enriched"] = 10,
+            });
+
+            var run = Current();
+
+            Assert.Equal(42, run.ItemsIndexed);
+            Assert.Equal(42, run.ItemsPlanned);
+            Assert.Equal(10, run.ItemsEnriched);
+        }
+
+        [Fact]
+        public void TheEnrichedCountClimbsWhileTheRunIsStillGoing()
+        {
+            var log = Begin();
+
+            log.Step("enrichment.planned", "42 to do", new Dictionary<string, object?> { ["stale"] = 42 });
+
+            foreach (var done in new[] { 10, 20, 30 })
+            {
+                log.Step("enrichment.batch", "batch", new Dictionary<string, object?>
+                {
+                    ["enriched"] = done,
+                });
+            }
+
+            // Cumulative, not per batch: a panel showing the last batch's count would
+            // read as ten enriched no matter how long the build had been running.
+            Assert.Equal(30, Current().ItemsEnriched);
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (Directory.Exists(_root))
+                {
+                    Directory.Delete(_root, recursive: true);
+                }
+            }
+            catch (IOException)
+            {
+            }
+        }
+
+        private sealed class StubPaths : MediaBrowser.Common.Configuration.IApplicationPaths
+        {
+            public StubPaths(string root) => DataPath = root;
+
+            public string ProgramDataPath => DataPath;
+
+            public string WebPath => DataPath;
+
+            public string ProgramSystemPath => DataPath;
+
+            public string DataPath { get; }
+
+            public string VirtualDataPath => DataPath;
+
+            public string ImageCachePath => DataPath;
+
+            public string PluginsPath => DataPath;
+
+            public string PluginConfigurationsPath => DataPath;
+
+            public string LogDirectoryPath => DataPath;
+
+            public string ConfigurationDirectoryPath => DataPath;
+
+            public string SystemConfigurationFilePath => DataPath;
+
+            public string CachePath { get; set; } = string.Empty;
+
+            public string TempDirectory => DataPath;
+
+            public string TrickplayPath => DataPath;
+
+            public string BackupPath => DataPath;
+
+            public void MakeSanityCheckOrThrow()
+            {
+            }
+
+            public void CreateAndCheckMarker(string path, string markerName, bool recursive = false)
+            {
+            }
+        }
+    }
+
+    /// <summary>
     /// The tie between an item and the build that wrote it.
     /// </summary>
     /// <remarks>

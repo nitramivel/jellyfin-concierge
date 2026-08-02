@@ -24,6 +24,10 @@ namespace Jellyfin.Plugin.Concierge.Api
     /// <param name="Spoiler">Whether the enrichment gives away an ending.</param>
     /// <param name="Rows">Vector rows carrying this item.</param>
     /// <param name="Cues">Lines of dialogue extracted, or 0 when none were.</param>
+    /// <param name="Pending">
+    /// Whether this item's stored enrichment differs from what is actually embedded —
+    /// that is, whether the answers on this page are the ones a search would use.
+    /// </param>
     public sealed record LibraryItemSummary(
         Guid ItemId,
         string Title,
@@ -37,7 +41,8 @@ namespace Jellyfin.Plugin.Concierge.Api
         int Asks,
         bool Spoiler,
         int Rows,
-        int Cues);
+        int Cues,
+        bool Pending);
 
     /// <summary>
     /// Everything Concierge holds for one item.
@@ -120,6 +125,11 @@ namespace Jellyfin.Plugin.Concierge.Api
     /// the single number on this page most worth watching.
     /// </param>
     /// <param name="WithQuotes">How many have extracted dialogue.</param>
+    /// <param name="Pending">
+    /// How many items hold enrichment the index has not embedded yet.
+    /// </param>
+    /// <param name="EnrichmentNewestUtc">When the newest stored enrichment was written.</param>
+    /// <param name="IndexBuiltUtc">When the embedded rows were built.</param>
     /// <param name="Generation">Which index build this is.</param>
     public sealed record LibraryView(
         IReadOnlyList<LibraryItemSummary> Items,
@@ -127,5 +137,8 @@ namespace Jellyfin.Plugin.Concierge.Api
         int Enriched,
         int WithoutAsks,
         int WithQuotes,
+        int Pending,
+        DateTime? EnrichmentNewestUtc,
+        DateTime IndexBuiltUtc,
         long Generation);
 }

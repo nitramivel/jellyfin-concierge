@@ -181,6 +181,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Runs
         string Phase,
         int ItemsIndexed,
         int ItemsEnriched,
+        int ItemsPlanned,
         int RowsEmbedded,
         int RowsReused,
         decimal CostUsd,
