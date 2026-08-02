@@ -92,7 +92,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
                     "setTimeout", "clearTimeout", "String", "Math", "Array",
                     "JSON", "MutationObserver", "encodeURIComponent", "if",
                     "for", "while", "switch", "catch", "return", "typeof",
-                    "function",
+                    "function", "requestAnimationFrame",
                 },
                 StringComparer.Ordinal);
 
@@ -231,6 +231,57 @@ namespace Jellyfin.Plugin.Concierge.Tests
 
             Assert.Contains("lastQuery !== query", preview, StringComparison.Ordinal);
             Assert.Contains("render(result, true)", preview, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The row shows that work is happening, and stops when it stops.
+        /// </summary>
+        /// <remarks>
+        /// A sweep still running over a finished answer claims the model is thinking
+        /// when it has already replied, which is worse than no animation at all — it
+        /// makes a fast search look like a hung one.
+        /// </remarks>
+        [Fact]
+        public void TheWorkingAnimationIsClearedOnEveryPathThatEndsTheSearch()
+        {
+            var code = WithoutComments(Script);
+
+            Assert.Contains("@keyframes concierge-sweep", Script, StringComparison.Ordinal);
+            Assert.Contains("concierge-working", code, StringComparison.Ordinal);
+
+            // Added in exactly two places — the waiting row and a provisional render —
+            // and removed on all three endings: emptied, no results, and answered.
+            var added = Regex.Matches(code, @"classList\.add\('concierge-working'\)").Count;
+            var removed = Regex.Matches(code, @"classList\.remove\('concierge-working'\)").Count;
+
+            Assert.True(
+                removed >= added,
+                $"concierge-working is added {added} time(s) and removed {removed}");
+            Assert.Contains("classList.toggle('concierge-working'", code, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Motion is how the state is delivered, never the only copy of it.
+        /// </summary>
+        [Fact]
+        public void AnyoneWhoAskedForLessMotionGetsTheStateWithoutIt()
+        {
+            Assert.Contains("prefers-reduced-motion:reduce", Script, StringComparison.Ordinal);
+            Assert.Contains(
+                "prefers-reduced-motion: reduce", WithoutComments(Script), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Cards need a stable identity or the reorder cannot be animated.
+        /// </summary>
+        [Fact]
+        public void EveryCardCarriesTheIdTheSlideTracksItBy()
+        {
+            var card = Between(Script, "function card(", "function skeletonCards(");
+
+            Assert.Contains("data-concierge-id=", card, StringComparison.Ordinal);
+            Assert.Contains(
+                ".concierge-card[data-concierge-id]", Script, StringComparison.Ordinal);
         }
 
         [Fact]

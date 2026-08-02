@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.15.0.0",
+        "changelog": "The row shows its work: skeleton cards while the free answer loads, a light sweep while the model ranks, and cards that slide into their new positions when the ranking lands.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.15.0.0/concierge_0.15.0.0.zip",
+        "checksum": "3e413ae2f00e821a3e9b42318d86fbde",
+        "timestamp": "2026-08-02T10:31:56Z"
+      },
+      {
         "version": "0.14.0.0",
         "changelog": "Match reason length and how many results get one are now settings, and both are the dial on how long a search takes. Also: the profile dropdown now says which profile is actually in use.",
         "targetAbi": "10.11.11.0",

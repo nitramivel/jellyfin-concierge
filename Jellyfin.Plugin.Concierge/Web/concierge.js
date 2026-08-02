@@ -58,7 +58,45 @@
         // A newer query is settling. Dimming beats blanking: emptying the row on
         // every keystroke left a hole for the two-second debounce plus six seconds
         // of query, which reads as broken rather than as busy.
-        '#concierge-results.concierge-pending{opacity:.45;transition:opacity .15s;}' +
+        '#concierge-results.concierge-pending{opacity:.55;transition:opacity .15s;}' +
+
+        // The light sweep that says work is happening. One animation drives both the
+        // skeleton cards and the shimmer over real posters, so there is a single
+        // rhythm on the row rather than two things blinking out of step.
+        '@keyframes concierge-sweep{0%{transform:translateX(-120%);}' +
+        '100%{transform:translateX(220%);}}' +
+        '#concierge-results .concierge-card .cardScalable{overflow:hidden;}' +
+        '#concierge-results.concierge-working .concierge-card .cardScalable::after{' +
+        'content:"";position:absolute;inset:0;z-index:2;pointer-events:none;' +
+        'background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.16) 50%,' +
+        'transparent 65%);animation:concierge-sweep 1.5s ease-in-out infinite;}' +
+
+        // Skeletons for the moment before even the free answer is back. A row that
+        // is visibly getting ready reads better than a row that is not there.
+        '#concierge-results .concierge-skeleton .cardImageContainer{' +
+        'background:rgba(127,127,127,.18);}' +
+        '#concierge-results .concierge-skeleton .cardText{height:.9em;margin:.35em .4em;' +
+        'border-radius:.2em;background:rgba(127,127,127,.18);}' +
+        '#concierge-results .concierge-skeleton .cardText-secondary{width:35%;}' +
+        '#concierge-results .concierge-skeleton .concierge-why{width:75%;}' +
+
+        // Three dots, counting, in the heading. Small enough to be a status and not
+        // a decoration.
+        '@keyframes concierge-blink{0%,80%,100%{opacity:.25;}40%{opacity:1;}}' +
+        '#concierge-results .concierge-dots span{animation:concierge-blink 1.4s infinite;}' +
+        '#concierge-results .concierge-dots span:nth-child(2){animation-delay:.2s;}' +
+        '#concierge-results .concierge-dots span:nth-child(3){animation-delay:.4s;}' +
+
+        // Cards slide to their ranked positions rather than teleporting.
+        '#concierge-results .concierge-card{will-change:transform;}' +
+
+        // Anyone who has asked their system to stop moving things gets the states
+        // without the motion. The information is in the dimming and the label; the
+        // animation is only how it is delivered.
+        '@media(prefers-reduced-motion:reduce){' +
+        '#concierge-results.concierge-working .concierge-card .cardScalable::after,' +
+        '#concierge-results .concierge-dots span{animation:none;}' +
+        '#concierge-results .concierge-card{transition:none!important;}}' +
         '#concierge-results .concierge-stamp{position:absolute;right:.4em;bottom:.4em;' +
         'background:rgba(0,0,0,.72);color:#fff;border-radius:.25em;padding:.1em .4em;' +
         'font-size:.78em;}';
@@ -258,7 +296,8 @@
             + (url ? 'background-image:url(\'' + escapeHtml(url) + '\');' : '');
         var href = escapeHtml(itemLink(itemId));
 
-        return '<div class="card overflowPortraitCard card-hoverable card-withuserdata concierge-card">'
+        return '<div data-concierge-id="' + escapeHtml(itemId) + '"'
+            + ' class="card overflowPortraitCard card-hoverable card-withuserdata concierge-card">'
             + '<div class="cardBox cardBox-bottompadded">'
             + '<div class="cardScalable">'
             + '<div class="cardPadder cardPadder-overflowPortrait"></div>'
@@ -283,6 +322,33 @@
                     + escapeHtml(why) + '">' + escapeHtml(why) + '</div>'
                 : '')
             + '</div></div>';
+    }
+
+    /* A card-shaped placeholder. Same markup as a real card so the row does not
+     * change height or spacing when the real ones arrive — a layout that jumps at
+     * the moment the answer lands undoes the point of showing anything early. */
+    function skeletonCards(count) {
+        var one = '<div class="card overflowPortraitCard concierge-card concierge-skeleton">'
+            + '<div class="cardBox cardBox-bottompadded"><div class="cardScalable">'
+            + '<div class="cardPadder cardPadder-overflowPortrait"></div>'
+            + '<div class="cardImageContainer coveredImage cardContent"></div>'
+            + '</div>'
+            + '<div class="cardText cardText-first"></div>'
+            + '<div class="cardText cardText-secondary"></div>'
+            + '<div class="cardText concierge-why"></div>'
+            + '</div></div>';
+
+        var all = '';
+        for (var i = 0; i < count; i++) {
+            all += one;
+        }
+
+        return all;
+    }
+
+    function thinkingLabel() {
+        return ' <span class="concierge-note concierge-dots">ranking'
+            + '<span>.</span><span>.</span><span>.</span></span>';
     }
 
     function section(heading, cards) {
@@ -329,19 +395,83 @@
         return section('Said in\u2026', cards);
     }
 
+    /* Cards slide from where they were to where the ranking put them.
+     *
+     * Measure every card, let the row be replaced, measure again, then put each card
+     * back where it started with a transform and release it on the next frame. The
+     * browser animates one property it can do on the compositor, so a row of twenty
+     * posters reorders without touching layout twice.
+     *
+     * This is the only moment in the plugin where the model's work is visible as
+     * work: the free answer was already right about WHAT matched, and what arrives
+     * is a better opinion about the order. Showing that as movement says so more
+     * honestly than replacing the row and hoping somebody noticed. */
+    function positionsOf(el) {
+        var map = {};
+
+        Array.prototype.forEach.call(
+            el.querySelectorAll('.concierge-card[data-concierge-id]'),
+            function (card) {
+                map[card.getAttribute('data-concierge-id')] = card.getBoundingClientRect().left;
+            });
+
+        return map;
+    }
+
+    function slideFrom(el, before) {
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            return;
+        }
+
+        var moved = [];
+
+        Array.prototype.forEach.call(
+            el.querySelectorAll('.concierge-card[data-concierge-id]'),
+            function (card) {
+                var was = before[card.getAttribute('data-concierge-id')];
+                if (was === undefined) {
+                    return;
+                }
+
+                var delta = was - card.getBoundingClientRect().left;
+                if (Math.abs(delta) < 2) {
+                    return;
+                }
+
+                card.style.transition = 'none';
+                card.style.transform = 'translateX(' + delta + 'px)';
+                moved.push(card);
+            });
+
+        if (!moved.length) {
+            return;
+        }
+
+        // Two frames: one for the browser to accept the starting offset, one to let
+        // the transition it is about to gain actually have something to run from.
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                moved.forEach(function (card) {
+                    card.style.transition = 'transform .38s cubic-bezier(.2,.7,.3,1)';
+                    card.style.transform = '';
+                });
+            });
+        });
+    }
+
     function render(result, provisional) {
         var el = container();
         if (!el) {
             return;
         }
 
-        // A preview stays dimmed: it IS provisional, and the dimming is already the
-        // page's word for "a better answer is coming". The full answer clears it.
-        if (provisional) {
-            el.classList.add('concierge-pending');
-        } else {
-            el.classList.remove('concierge-pending');
-        }
+        // A preview stays dimmed and sweeping: it IS provisional, and both are the
+        // page's word for "a better answer is on its way". The full answer clears
+        // them, and the cards slide from wherever the preview had put them.
+        el.classList.toggle('concierge-pending', !!provisional);
+        el.classList.toggle('concierge-working', !!provisional);
+
+        var before = positionsOf(el);
 
         // The router has established that native substring search is the right
         // answer. Showing the free Concierge retrieval beside it would duplicate
@@ -356,7 +486,10 @@
 
         if (!hasHits && !hasQuotes) {
             // Nothing to add. Emptying our own container is fine \u2014 we made it.
+            // The working class goes too: a row still sweeping over an empty answer
+            // claims work is happening when it has finished and found nothing.
             el.innerHTML = '';
+            el.classList.remove('concierge-working');
             return;
         }
 
@@ -364,9 +497,7 @@
 
         if (hasHits) {
             html += section(
-                provisional
-                    ? 'Concierge matches <span class="concierge-note">(ranking\u2026)</span>'
-                    : 'Concierge matches',
+                'Concierge matches' + (provisional ? thinkingLabel() : ''),
                 renderHits(result));
         }
 
@@ -378,6 +509,24 @@
         }
 
         el.innerHTML = html;
+        slideFrom(el, before);
+    }
+
+    /* The row before there is anything to put in it.
+     *
+     * Only reached when the free answer has not come back yet, which on this library
+     * is under a tenth of a second — but a search that starts by showing something
+     * getting ready reads better than one that starts with nothing and then has a row
+     * appear out of it. */
+    function renderWaiting() {
+        var el = container();
+        if (!el || el.innerHTML !== '') {
+            return;
+        }
+
+        el.classList.add('concierge-working');
+        el.classList.remove('concierge-pending');
+        el.innerHTML = section('Concierge matches' + thinkingLabel(), skeletonCards(7));
     }
 
     /* The free answer, on its own.
@@ -467,6 +616,7 @@
         if (el) {
             el.innerHTML = '';
             el.classList.remove('concierge-pending');
+            el.classList.remove('concierge-working');
         }
     }
 
@@ -530,6 +680,7 @@
         }
 
         markPending();
+        renderWaiting();
 
         previewTimer = setTimeout(function () { runPreview(query); }, PREVIEW_MS);
         timer = setTimeout(function () { run(query); }, DEBOUNCE_MS);
