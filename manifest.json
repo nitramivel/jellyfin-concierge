@@ -10,195 +10,43 @@
     "versions": [
       {
         "version": "0.20.0.0",
-        "changelog": "Run logs record what each item got, break cost down by model with the rates used, and project what an unfinished run would have cost.",
+        "changelog": "Rebuild the index on purpose from the Index tab, and see where the money went when you do. Run logs now record what each item got back (premise, themes, asks, or nothing at all), break the cost down by model with the rates each was billed at, and project what an unfinished run would have cost and taken. Folds in 0.19.0.0.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.20.0.0/concierge_0.20.0.0.zip",
         "checksum": "b4350d69aff361348fea55df2c0e0cb9",
         "timestamp": "2026-08-02T20:49:00Z"
       },
       {
-        "version": "0.19.0.0",
-        "changelog": "Adds full index regeneration from the Index tab: rebuild enrichment and embeddings from scratch through Jellyfin task management, reject overlapping builds, show progress, and keep the active index until replacement succeeds. Refreshes project documentation and removes stale handoff and release-note files.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.19.0.0/concierge_0.19.0.0.zip",
-        "checksum": "c08ed89a563c55841526923141e0d48e",
-        "timestamp": "2026-08-02T20:03:18Z"
-      },
-      {
         "version": "0.18.0.0",
-        "changelog": "The row is called Matches, sits at the top of the search page, says whether it is searching or ranking, and the wait before a paid search is now a setting.",
+        "changelog": "The search row is called Matches, sits above every other result row, and says whether it is searching or ranking. Concierge mode gives the whole page over to your own library at a toggle. The settings page is tabbed, with which-model-runs-which-pass leading the Models tab. Skeleton cards, a light sweep while the model ranks, and cards that slide into their ranked positions. Match reason length, how many results get one, and the wait before a paid search are all settings now. Folds in 0.14.0.0 through 0.17.0.0.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.18.0.0/concierge_0.18.0.0.zip",
         "checksum": "4d50c5b0f35e30799bb8eec27eaddbc1",
         "timestamp": "2026-08-02T11:09:11Z"
       },
       {
-        "version": "0.17.0.0",
-        "changelog": "The settings page is tabbed, and 'which model runs which pass' is now the first thing on the Models tab instead of the seventh heading down. Per-pass model choice always existed; the layout was hiding it.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.17.0.0/concierge_0.17.0.0.zip",
-        "checksum": "327a41e8147dec8c4a16cc4b7ff9f55a",
-        "timestamp": "2026-08-02T10:47:16Z"
-      },
-      {
-        "version": "0.16.0.0",
-        "changelog": "Concierge mode: a toggle on the search page that hides the library's own rows and gives Concierge the full page as a grid. Jellyseerr stays. Toggle off and the page comes back exactly.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.16.0.0/concierge_0.16.0.0.zip",
-        "checksum": "146d09c5378a75f993cc4c7ddf7bfe76",
-        "timestamp": "2026-08-02T10:39:22Z"
-      },
-      {
-        "version": "0.15.0.0",
-        "changelog": "The row shows its work: skeleton cards while the free answer loads, a light sweep while the model ranks, and cards that slide into their new positions when the ranking lands.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.15.0.0/concierge_0.15.0.0.zip",
-        "checksum": "3e413ae2f00e821a3e9b42318d86fbde",
-        "timestamp": "2026-08-02T10:31:56Z"
-      },
-      {
-        "version": "0.14.0.0",
-        "changelog": "Match reason length and how many results get one are now settings, and both are the dial on how long a search takes. Also: the profile dropdown now says which profile is actually in use.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.14.0.0/concierge_0.14.0.0.zip",
-        "checksum": "99cbdce67fb52dda30f08447a267631b",
-        "timestamp": "2026-08-02T09:53:42Z"
-      },
-      {
         "version": "0.13.0.0",
-        "changelog": "Results appear in about a millisecond. The free keyword answer paints immediately and the ranked one replaces it when it lands, so nobody waits on the model to see something real.",
+        "changelog": "Results appear in about a millisecond: the free keyword answer paints immediately and the ranked one replaces it when it lands, so nothing waits on the model to show something real. Posters render, the row uses Jellyfin's own horizontal card shape, EnableThinking finally takes effect on OpenAI, and the result count is the model's judgement rather than a fixed twelve. Folds in 0.11.0.0 through 0.12.0.0.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.13.0.0/concierge_0.13.0.0.zip",
         "checksum": "1f2b01fca4ad9e13a7e1a556401298b1",
         "timestamp": "2026-08-02T08:03:20Z"
       },
       {
-        "version": "0.12.0.0",
-        "changelog": "Card text matches the native rows, the result count is the model's judgement instead of a fixed twelve, 40 candidates are considered, and EnableThinking finally does something on OpenAI.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.12.0.0/concierge_0.12.0.0.zip",
-        "checksum": "6c53be39830e288a783cee9c49bd8c10",
-        "timestamp": "2026-08-02T07:39:47Z"
-      },
-      {
-        "version": "0.11.4.0",
-        "changelog": "Posters render: our own CSS was overriding Jellyfin's absolutely-positioned card content into a zero-height box. Also drops the unnecessary access token from image URLs, restores the native heading indent, and dims the row while a query settles instead of blanking it.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.4.0/concierge_0.11.4.0.zip",
-        "checksum": "2e57b5fdd579ff21ea9ad5590d58bce7",
-        "timestamp": "2026-08-01T22:52:16Z"
-      },
-      {
-        "version": "0.11.3.0",
-        "changelog": "Fixes poster requests returning HTTP 403 by authenticating generated Jellyfin image URLs with the current user's API token. Removes the remaining result-text inset and slightly reduces the Concierge heading indentation.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.3.0/concierge_0.11.3.0.zip",
-        "checksum": "af8eaadfef3bfccfe1c8d2877341d2d7",
-        "timestamp": "2026-08-01T13:20:24Z"
-      },
-      {
-        "version": "0.11.2.0",
-        "changelog": "Restores Concierge poster artwork by using Jellyfin 10.11's supported scaled-image URL helper and rendering a real image element inside each card. Result titles and explanations now align with the poster's left edge.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.2.0/concierge_0.11.2.0.zip",
-        "checksum": "41da3c38a7c9b7703282620d95b2c94d",
-        "timestamp": "2026-08-01T12:56:14Z"
-      },
-      {
-        "version": "0.11.1.0",
-        "changelog": "Fixes Concierge results rendering as a raw full-width text list when Jellyfin has no native matches. The row now uses the same empty-state placement and complete native scroller/card structure as Jellyfin Enhanced's working Discover on Seerr section.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.1.0/concierge_0.11.1.0.zip",
-        "checksum": "715036e5ab0338398e668ca320c66ce4",
-        "timestamp": "2026-08-01T12:37:58Z"
-      },
-      {
-        "version": "0.11.0.0",
-        "changelog": "Search results now use Jellyfin native horizontal rows with two-line explanations. Native title lookups no longer get a duplicate Concierge row. Paid searches wait for a settled query, Enter runs immediately, and stale or duplicate in-flight results cannot repaint the page.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.11.0.0/concierge_0.11.0.0.zip",
-        "checksum": "751b3033841a1c41287c9662ad52bc23",
-        "timestamp": "2026-08-01T12:21:02Z"
-      },
-      {
         "version": "0.10.1.0",
-        "changelog": "Fixes an upgrade that silently did nothing: the client script URL never changed between releases and carried no cache headers, so browsers kept running the old one.",
+        "changelog": "Results reach the Jellyfin search box as poster cards, above the Jellyseerr rows. Fixes an upgrade that silently did nothing \u2014 the client script URL never changed between releases and carried no cache headers, so browsers kept running the old one. Folds in 0.10.0.0.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.10.1.0/concierge_0.10.1.0.zip",
         "checksum": "ded0a604e5168222de32b5171524d9ff",
         "timestamp": "2026-08-01T10:55:04Z"
       },
       {
-        "version": "0.10.0.0",
-        "changelog": "Results render as poster cards and sit above the Jellyseerr rows. Replaces the withdrawn 1.0.0.0 \u2014 that number claimed a quality gate the plugin has not passed.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.10.0.0/concierge_0.10.0.0.zip",
-        "checksum": "7ca01092a7a2e4323ab06d5f2978bb0d",
-        "timestamp": "2026-08-01T10:30:34Z"
-      },
-      {
         "version": "0.9.0.0",
-        "changelog": "Replaces the 200-entry rolling query log with append-only monthly JSONL files kept for two years, so usage can actually be broken down; existing records are imported automatically. Adds a usage and cost report \u2014 totals, router free-share, and breakdowns by month, pass, model, route and user \u2014 summed call by call rather than estimated from token counts. Adds a setting to keep every number while dropping the search text.",
+        "changelog": "Everything before the search box: natural-language search over your library from the plugin's own page. Hybrid keyword and semantic retrieval, an enrichment pass that writes what each item is about, a plan pass that reads constraints out of a sentence, quote search over your own subtitles and lyrics, checkpointing so a cancelled index build loses nothing, and an append-only monthly query log with per-call costs. Folds in 0.2.0.0 through 0.8.0.0.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.9.0.0/concierge_0.9.0.0.zip",
         "checksum": "f1377318b9141bfa4e28b15af124fc7d",
         "timestamp": "2026-08-01T09:46:53Z"
-      },
-      {
-        "version": "0.8.0.0",
-        "changelog": "Indexes song lyrics alongside film dialogue, so a remembered line finds the track and the second it is sung. Fixes michael scott returning Scott Pilgrim by applying the plan's dominant-winner rule: a Native route only stands when keyword retrieval produced a clear winner. Cuts paid search latency by asking the re-ranker for its best twelve rather than all forty, capping explanations, and trimming the shortlist.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.8.0.0/concierge_0.8.0.0.zip",
-        "checksum": "92791c322b9d546a7446ce6c70e43fd2",
-        "timestamp": "2026-08-01T09:35:19Z"
-      },
-      {
-        "version": "0.7.0.0",
-        "changelog": "Phase 3: quote search. Extracts the subtitles already inside your files and indexes the dialogue, so a quoted line finds the film and the moment it is said \u2014 no model, no embeddings, no money. Resumable extraction keyed on stream, path, size and modified time; forced tracks refused; SDH annotations stripped; misremembered quotes caught by trigram matching; and a coverage report naming what cannot be indexed and why.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.7.0.0/concierge_0.7.0.0.zip",
-        "checksum": "44d0c5a681fa6f51e6ca1112ed05f676",
-        "timestamp": "2026-08-01T09:22:43Z"
-      },
-      {
-        "version": "0.6.0.0",
-        "changelog": "Phase 2: a plan pass that reads constraints out of the sentence, filters that fail open rather than emptying the page, and a re-rank pass that orders the shortlist and explains each match. Adds a query cache, a persisted spend ledger, a monthly budget that degrades to free retrieval rather than erroring, per-user rate limiting and kill switches for both passes.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.6.0.0/concierge_0.6.0.0.zip",
-        "checksum": "66a11f7772faf84c37950b028bec8df1",
-        "timestamp": "2026-08-01T07:32:24Z"
-      },
-      {
-        "version": "0.5.0.0",
-        "changelog": "A Native route no longer means returning nothing: keyword retrieval is free and now always runs, so queries like 'robots' and 'death love' surface the titles the index already ranked first. Adds a per-item vibe row of genres and themes so mood words like 'sexy' match something focused instead of being averaged against a plot summary. Needs one index rebuild, which costs almost nothing.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.5.0.0/concierge_0.5.0.0.zip",
-        "checksum": "68bf37a6d6cf0c76231790a18ebf9046",
-        "timestamp": "2026-08-01T06:53:02Z"
-      },
-      {
-        "version": "0.4.0.0",
-        "changelog": "Fixes the router sending short descriptions like 'dark comedy' to native search, where they returned nothing: a short query that names nothing in the library is now treated as a description and served by both paths. The settings search box now shows Jellyfin's own results alongside Concierge's, and the query log records the top titles returned so a search can be judged after the fact.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.4.0.0/concierge_0.4.0.0.zip",
-        "checksum": "e58d6db86c849041492a49f164a1b0a2",
-        "timestamp": "2026-08-01T06:42:30Z"
-      },
-      {
-        "version": "0.3.0.0",
-        "changelog": "Enrichment now checkpoints every five batches, so cancelling or crashing a build keeps everything already paid for. Adds a per-build run log recording every model call with its tokens and cost, every step, and every item left unenriched with a reason; a progress heartbeat in the server log; and a build history panel on the settings page.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.3.0.0/concierge_0.3.0.0.zip",
-        "checksum": "92a4b5191a006163f399581b91f05f88",
-        "timestamp": "2026-08-01T06:12:06Z"
-      },
-      {
-        "version": "0.2.0.0",
-        "changelog": "Phases 0 and 1: plugin skeleton, dual model profile system, local hybrid index with the enrichment pass, BM25 + vector retrieval with rank fusion, query router, and POST /Concierge/Search. Not yet exercised against a live server.",
-        "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.2.0.0/concierge_0.2.0.0.zip",
-        "checksum": "56c9785c5e9c2cacc595af440f8cc9ee",
-        "timestamp": "2026-08-01T03:57:02Z"
       }
     ]
   }
