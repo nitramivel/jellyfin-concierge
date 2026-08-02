@@ -1,143 +1,131 @@
-<div align="center">
+# Concierge
 
-# 🔎 Concierge
+Concierge is a Jellyfin plugin for searching a library the way you would
+describe something to a friend:
 
-**A Jellyfin plugin that lets you search your library<br/>the way you'd describe a film to a friend.**
+> that film where he tattoos the clues on himself
 
-[![Jellyfin](https://img.shields.io/badge/Jellyfin-10.11.x-aa5cc3?logo=jellyfin&logoColor=white)](https://jellyfin.org)
-[![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
-[![Status](https://img.shields.io/badge/status-phase%201%20%C2%B7%20unmeasured-lightgrey)](#-status)
+> something funny but not stupid for a Sunday
 
-*"that 90s movie where the guy can't make new memories" · "something funny but not stupid"<br/>"90s sci-fi under two hours I haven't seen" · "I'm walking here!"*
+> I'm walking here
 
-</div>
+Jellyfin's native search remains intact. Title-like queries still use it;
+descriptive queries gain local keyword and semantic retrieval, optional model
+planning and re-ranking, short match explanations, and dialogue or lyric hits
+with timestamps.
 
----
+## What it does
 
-Jellyfin's search is a substring match. Type `blade` and you get Blade Runner —
-which is exactly right, and exactly all it does. Type *"the one where he tattoos
-the clues on himself"* and you get nothing, because no title contains that
-string.
+- Adds Concierge results to Jellyfin Web without replacing native results.
+- Routes obvious title searches to Jellyfin's fast, free search path.
+- Retrieves from a local hybrid index using BM25 and embeddings.
+- Enriches library metadata with descriptions of memorable plots, moments,
+  themes, and moods.
+- Optionally reads constraints such as decade, runtime, genre, and watch state.
+- Re-ranks a shortlist and explains why each result matched.
+- Indexes dialogue and lyrics for remembered-line searches with timestamps.
+- Shows a free preview immediately while a paid ranking request is still running.
+- Tracks usage, costs, index-build progress, and degradation from configured
+  budgets or unavailable providers.
 
-Concierge adds the other half: a search that reads the sentence, understands
-what you're describing, and finds it among the things you actually own.
+Concierge never edits library items. Its generated data is a disposable cache.
 
-## 🎯 Scope
-
-Concierge does one thing: **turn a sentence into the right items in this
-library.**
-
-It is not a filter UI and not a rules engine — [SmartLists](https://github.com/jyourstone/jellyfin-smartlists-plugin)
-already does that well. It is not a recommender — that's
-[Curator](https://github.com/nitramivel/jellyfin-curator), its sibling plugin.
-Concierge answers a question you asked. Curator answers one you didn't.
-
-It never writes to your library. The index is a cache; delete it and you're
-exactly where you started.
-
-## 🧠 How it will work
+## How search works
 
 ```mermaid
 flowchart LR
-    Q["💬 your sentence"] --> R["🚦 Route<br/><i>free · is this even NL?</i>"]
-    R -->|"'blade'"| N["⚡ native search<br/><i>unchanged, instant</i>"]
-    R -->|"a description"| P["🧩 Plan<br/><i>intent + filters</i>"]
-    P --> H["🔀 Retrieve<br/><i>keyword + semantic · free</i>"]
-    H --> K["🏆 Re-rank<br/><i>order + explain</i>"]
-    K --> O["🎬 results, with reasons"]
+    Q[Search text] --> R{Route}
+    R -->|Known title| N[Jellyfin search]
+    R -->|Description| P[Plan constraints]
+    P --> H[BM25 + vectors]
+    H --> K[Re-rank shortlist]
+    K --> O[Results + reasons]
+    Q --> D[Dialogue + lyrics]
+    D --> O
 ```
 
-**Route.** Most searches aren't natural language — they're four letters of a
-title you already know. Those go straight to Jellyfin's own search, instantly
-and for free. No model is called and nothing gets slower.
+The retrieval step is local and free after the index exists. Model calls are
+limited to three named places: index-time enrichment, query planning, and
+re-ranking. If a provider fails or a budget is exhausted, search degrades to the
+free path rather than returning an error.
 
-**Plan.** A description gets read once by a small model, which pulls out what
-you actually asked for: the gist, and any real constraints hiding in the prose
-(*"90s"*, *"under two hours"*, *"that I haven't seen"*).
+## Installation
 
-**Retrieve.** Two searches run over a local index of your library — keyword
-matching for names and titles, semantic matching for plot and tone — and their
-results are merged. This step costs nothing and calls no model, which is what
-makes Concierge keep working when the budget runs out.
+Concierge targets Jellyfin `10.11.11` and .NET 9.
 
-**Re-rank.** The shortlist goes to a model, which puts it in order and says *why
-each one matched*. That one line under the poster is the difference between a
-semantic result you trust and one that just feels like a guess.
+1. In Jellyfin, open **Dashboard → Plugins → Repositories**.
+2. Add this repository URL:
 
-**Quotes** *(later)*: subtitles get indexed too, so *"I'm walking here!"* finds
-the film **and the timestamp**, and playback starts five seconds before the line.
+   ```text
+   https://raw.githubusercontent.com/nitramivel/jellyfin-concierge/main/manifest.json
+   ```
 
-### The part that makes it actually work
+3. Install **Concierge** from the catalogue and restart Jellyfin when prompted.
+4. Open **Dashboard → Plugins → Concierge**.
+5. Configure at least one embedding profile. Configure a chat profile if you
+   want enrichment, planning, or re-ranking.
+6. Save, then build the search index from the Index tab or Jellyfin's Scheduled
+   Tasks page.
 
-Film overviews describe the *premise*; people remember *moments*. John Wick's
-overview says "ex-hitman comes out of retirement to track down the gangsters that
-took everything from him" — so *"the one where they kill the guy's dog"* finds
-nothing, even with perfect semantic search.
+The configuration page can assign a different model to each pass. OpenAI,
+Anthropic, Google, and OpenAI-compatible chat endpoints are supported; embedding
+profiles support Google, Voyage, and OpenAI-compatible endpoints such as Ollama,
+LM Studio, or vLLM.
 
-So when Concierge builds its index it also asks a model, once per film, *"how
-would someone who half-remembers this describe it?"* — and indexes those
-phrasings too. Your fuzzy sentence then gets matched against **other fuzzy
-sentences about the same film** instead of against marketing copy. That's the
-difference between a demo and something you'd actually use.
+## Index lifecycle
 
-## 💸 What it costs
+The scheduled index task is incremental. Unchanged enrichment and vectors are
+reused, so routine refreshes generally cost nothing.
 
-**~1.4¢ per natural-language search** (a small model reads the sentence, a
-mid-sized one ranks the results) — and most searches never reach a model at all,
-because anything that looks like a title goes straight to Jellyfin's own search
-for free. Figure **$4–7/month** for a household.
+The Index tab also offers **Regenerate index**. This deliberately ignores every
+cached enrichment and vector and recreates them from source metadata. It is
+useful after changing enrichment strategy or when diagnosing a bad index, but it
+can cost as much as the initial build. The current index remains searchable
+until the replacement is successfully written.
 
-Building the index costs **a couple of dollars, once.**
+Episode enrichment is disabled by default for a reason: it can multiply a
+modest film-and-series index into thousands of model calls, while models often
+know little about individual episodes.
 
-There's a monthly cap, and when you hit it Concierge quietly falls back to the
-free keyword+semantic path instead of breaking. Embeddings can run locally
-against Ollama or LM Studio, in which case the index costs nothing and no library
-data leaves the house.
+## Cost and privacy
 
-## 📊 Status
+Costs depend on provider, model, library size, and query volume. Concierge has
+separate monthly and enrichment budgets, per-user rate limits, and pass-level
+switches. Local embeddings can make index vectors free and keep that text on the
+server.
 
-**Phases 0 and 1 are written — it searches, and nobody has run it yet.** In the
-repo: the plugin and its provider stacks, the index (documents, enrichment,
-BM25, embeddings, fusion), the router, the daily index task, and
-`POST /Concierge/Search`. 114 tests, no network.
+Library metadata is sent to the configured enrichment provider. Search text and
+shortlisted item descriptions are sent to configured query-time providers.
+Query logs can retain cost and routing data without retaining the search text.
+API keys are stored in Jellyfin's plugin configuration as plain text.
 
-**Not yet installed on a live server, and no index has ever been built**, so
-there are no quality numbers — [`eval/results-phase1.md`](eval/results-phase1.md)
-says exactly what was and wasn't measured. Treat the search quality here as
-designed-for, not demonstrated.
+## Project status
 
-[`PLAN.md`](PLAN.md) is the full execution plan: architecture, phases, fourteen
-hard rules, the cost model, and the open questions that could still change the
-design. It's grounded rather than speculative — the subtitle coverage, API
-surface, and cost figures in it were measured against a real library and the
-real 10.11.11 assemblies, and where something couldn't be verified it says so.
+The plugin is installable and has been exercised on Jellyfin `10.11.11` against
+a real library. The web integration, hybrid retrieval, model passes, quote and
+lyric search, budgets, run logs, and index administration are implemented.
 
-Concierge is the second plugin in a pair; [Curator](https://github.com/nitramivel/jellyfin-curator)
-is running against a live 10.11.11 server, and its provider stack, release
-process, and hard-won Jellyfin lessons are the foundation this one is built on.
+Search quality is not yet a published benchmark. The real-library evaluation
+set still needs expected answers before recall and ranking claims can be made.
+See [eval/README.md](eval/README.md) for the measurement workflow and
+[PLAN.md](PLAN.md) for the architecture, invariants, and design history.
 
-**Prior art:** [jellyfin-plugin-ai-search](https://github.com/Franciskid/jellyfin-plugin-ai-search)
-already does a good chunk of this and is worth your attention if you want
-something installable today. `PLAN.md` §1.1 covers what Concierge takes from it
-and where the two genuinely differ — chiefly the enrichment step above, hybrid
-keyword+semantic retrieval, and dialogue search.
+## Development
 
-## 🗺️ Roadmap
+The repository has no runtime dependency beyond Jellyfin's controller and model
+assemblies. Tests never call live model or embedding providers.
 
-| Phase | What lands |
-|---|---|
-| **0** ✅ | Plugin skeleton, model profiles, config page |
-| **1** ✅ | The index + free keyword/semantic search, via API |
-| **2** | Natural language: intent parsing, re-ranking, explanations, web UI |
-| **3** | 🗣️ Quote search with timestamps |
-| **4** | Health checks, personalization, "more like this" |
-
-## 📦 Installation
-
-Not yet installable. When it is, it'll be the usual: add
-
-```
-https://raw.githubusercontent.com/nitramivel/jellyfin-concierge/main/manifest.json
+```bash
+/home/levi/.dotnet/dotnet test Jellyfin.Plugin.Concierge.sln -c Release --no-restore
+git diff --check
 ```
 
-as a plugin repository in Jellyfin, install Concierge, and set a model profile.
+Build and packaging details are in [CLAUDE.md](CLAUDE.md).
+
+## Scope
+
+Concierge turns a sentence into the right library items. It is not a rules
+engine or filter builder; use
+[SmartLists](https://github.com/jyourstone/jellyfin-smartlists-plugin) for that.
+It is not a recommender; [Curator](https://github.com/nitramivel/jellyfin-curator)
+is the sibling project for recommendations.

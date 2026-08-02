@@ -19,21 +19,30 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
     public sealed class IndexBuildTask : IScheduledTask
     {
         private readonly ItemIndexer _indexer;
+        private readonly IndexBuildRequest _request;
         private readonly SearchService _search;
         private readonly ILogger<IndexBuildTask> _logger;
 
-        public IndexBuildTask(ItemIndexer indexer, SearchService search, ILogger<IndexBuildTask> logger)
+        public IndexBuildTask(
+            ItemIndexer indexer,
+            IndexBuildRequest request,
+            SearchService search,
+            ILogger<IndexBuildTask> logger)
         {
             _indexer = indexer;
+            _request = request;
             _search = search;
             _logger = logger;
         }
+
+        /// <summary>The stable key Jellyfin uses for this scheduled task.</summary>
+        public const string TaskKey = "ConciergeIndexBuild";
 
         /// <inheritdoc />
         public string Name => "Build the Concierge search index";
 
         /// <inheritdoc />
-        public string Key => "ConciergeIndexBuild";
+        public string Key => TaskKey;
 
         /// <inheritdoc />
         public string Description =>
@@ -53,10 +62,17 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 return;
             }
 
+            var regenerate = false;
             try
             {
+                regenerate = _request.ConsumeFullRegeneration();
                 var result = await _indexer
-                    .BuildAsync(config, "scheduled", progress, cancellationToken)
+                    .BuildAsync(
+                        config,
+                        regenerate ? "manual-regeneration" : "scheduled",
+                        progress,
+                        cancellationToken,
+                        regenerate)
                     .ConfigureAwait(false);
 
                 // The new index is on disk; drop the copy the search path is holding
@@ -100,6 +116,13 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 // A failed build leaves the previous index in place and searchable.
                 _logger.LogError(ex, "Concierge: the index build failed; the previous index is still in use");
                 throw;
+            }
+            finally
+            {
+                if (regenerate)
+                {
+                    _request.CompleteFullRegeneration();
+                }
             }
         }
 

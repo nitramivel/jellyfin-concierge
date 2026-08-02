@@ -44,6 +44,7 @@ namespace Jellyfin.Plugin.Concierge
             serviceCollection.AddSingleton<IIndexStore, IndexStore>();
             serviceCollection.AddSingleton<EnrichmentService>();
             serviceCollection.AddSingleton<ItemIndexer>();
+            serviceCollection.AddSingleton<IndexBuildRequest>();
 
             // A singleton because it caches the loaded index. Rebuilding the BM25
             // postings and re-reading the vector file per query would put disk work

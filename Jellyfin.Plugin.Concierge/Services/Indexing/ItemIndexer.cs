@@ -72,12 +72,17 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
         /// <param name="trigger">"scheduled" or "manual".</param>
         /// <param name="progress">Reports 0-100, or null.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
+        /// <param name="regenerate">
+        /// Whether to ignore every cached enrichment and vector and generate a new
+        /// index from source library metadata.
+        /// </param>
         /// <returns>What the build did.</returns>
         public async Task<IndexBuildResult> BuildAsync(
             PluginConfiguration config,
             string trigger,
             IProgress<double>? progress,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool regenerate = false)
         {
             ArgumentNullException.ThrowIfNull(config);
 
@@ -90,6 +95,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 ["embeddingBatchSize"] = config.EmbeddingBatchSize,
                 ["maxOutputTokens"] = config.MaxOutputTokens,
                 ["enableThinking"] = config.EnableThinking,
+                ["regenerate"] = regenerate,
             });
 
             var report = new Progress<double>(p =>
@@ -100,7 +106,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
             try
             {
-                var result = await RunAsync(config, runLog, report, cancellationToken).ConfigureAwait(false);
+                var result = await RunAsync(config, runLog, report, cancellationToken, regenerate)
+                    .ConfigureAwait(false);
                 runLog.Complete();
                 return result;
             }
@@ -122,7 +129,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             PluginConfiguration config,
             IIndexRunLog runLog,
             IProgress<double> progress,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool regenerate)
         {
             var embeddingProfile = EmbeddingProfiles.Resolve(config, config.EmbeddingProfileId);
             var embedder = _embeddingFactory.Create(embeddingProfile);
@@ -149,7 +157,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             //    changed is stale by definition — the hash covers the library fields
             //    only, so a metadata refresh cannot leave enrichment describing what
             //    an item used to be.
-            var stored = await _store.LoadEnrichmentAsync(cancellationToken).ConfigureAwait(false);
+            var stored = regenerate
+                ? new Dictionary<Guid, StoredEnrichment>()
+                : await _store.LoadEnrichmentAsync(cancellationToken).ConfigureAwait(false);
             var keep = new List<StoredEnrichment>();
             var stale = new List<ItemDocument>();
 
@@ -231,7 +241,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
             // 5. Reuse every vector whose text is unchanged. This is what makes a
             //    nightly rebuild cost approximately nothing.
-            var reusable = await LoadReusableVectorsAsync(embeddingProfile, cancellationToken).ConfigureAwait(false);
+            var reusable = regenerate
+                ? new Dictionary<string, float[]>(StringComparer.Ordinal)
+                : await LoadReusableVectorsAsync(embeddingProfile, cancellationToken).ConfigureAwait(false);
             var vectors = new float[texts.Count][];
             var toEmbed = new List<int>();
 

@@ -420,6 +420,19 @@
                         The index is a cache: deleting it degrades search and touches nothing in your library.
                     </div>
 
+                    <div class="conciergeEditor" style="margin-bottom:1em;">
+                        <strong>Regenerate from scratch</strong>
+                        <div class="fieldDescription" style="margin:0.35em 0 0.8em;">
+                            Ignores every saved enrichment and vector, then asks the configured models to generate
+                            all of them again. This can cost as much as the first build. Save any changed settings
+                            before starting. The current index stays searchable until its replacement is complete.
+                        </div>
+                        <button is="emby-button" type="button" id="ConciergeRegenerateIndex" class="raised">
+                            Regenerate index
+                        </button>
+                        <span id="ConciergeRegenerateNote" class="conciergeRunMeta" style="margin-left:0.6em;"></span>
+                    </div>
+
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label class="emby-checkbox-label">
                             <input is="emby-checkbox" type="checkbox" id="EnableEnrichment" />
@@ -680,7 +693,7 @@
                 </div>
 
                 <!-- Index builds -->
-                <div class="conciergeSection" data-concierge-tab="usage">
+                <div class="conciergeSection" data-concierge-tab="index">
                     <h3>Index builds</h3>
                     <div class="conciergeSectionNote">
                         What each build did and what it cost. Enrichment saves every few batches, so stopping a build
@@ -1375,6 +1388,34 @@
 
             page.querySelector('#ConciergeRefreshStatus').addEventListener('click', refreshStatus);
 
+            page.querySelector('#ConciergeRegenerateIndex').addEventListener('click', function () {
+                var warning = 'Regenerate the entire Concierge index?\n\n'
+                    + 'Every item will be enriched and embedded again. This may cost as much as the first build.';
+
+                if (!window.confirm(warning)) {
+                    return;
+                }
+
+                var button = page.querySelector('#ConciergeRegenerateIndex');
+                var note = page.querySelector('#ConciergeRegenerateNote');
+                button.disabled = true;
+                note.textContent = 'Queueing regeneration\u2026';
+
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('Concierge/Index/Regenerate')
+                }).then(function () {
+                    note.textContent = 'Regeneration queued. Progress appears below.';
+                    window.setTimeout(function () {
+                        pollCurrent();
+                        startPolling();
+                    }, 1000);
+                }, function () {
+                    button.disabled = false;
+                    note.textContent = 'Could not start regeneration. Another build may already be running.';
+                });
+            });
+
             // ---- try a search ----
 
             function renderHits(hits) {
@@ -1544,6 +1585,7 @@
             // Polls only while a build is in flight, and stops as soon as one is not.
             // The endpoint reads from memory, so this costs nothing but a round trip.
             var pollTimer = null;
+            var buildWasVisible = false;
 
             function pollCurrent() {
                 ApiClient.ajax({
@@ -1561,11 +1603,18 @@
                         }
 
                         panel.classList.add('hide');
+                        page.querySelector('#ConciergeRegenerateIndex').disabled = false;
+                        if (buildWasVisible) {
+                            page.querySelector('#ConciergeRegenerateNote').textContent = 'Index build finished.';
+                            buildWasVisible = false;
+                        }
                         stopPolling();
                         return;
                     }
 
+                    buildWasVisible = true;
                     panel.classList.remove('hide');
+                    page.querySelector('#ConciergeRegenerateIndex').disabled = true;
                     page.querySelector('#ConciergeRunningPhase').innerHTML =
                         '<strong>' + escapeHtml(run.Phase || 'working') + '</strong> — '
                         + escapeHtml(String(Math.round(run.Percent))) + '%';
@@ -1764,11 +1813,10 @@
             }
 
             page.querySelector('#ConciergeRefreshRuns').addEventListener('click', function () {
-                loadQuoteCoverage();
-                loadUsage();
                 loadRuns();
                 pollCurrent();
                 startPolling();
+                refreshStatus();
             });
 
             page.addEventListener('pageshow', function () {

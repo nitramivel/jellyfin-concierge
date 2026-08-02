@@ -1,54 +1,64 @@
-# Evaluation set
+# Evaluating search quality
 
-Search quality is not assessable by vibes. Every prompt change feels like an
-improvement on the query you had in mind when you made it, and quietly breaks
-four others. This directory is the defence against that.
+Search quality must be measured against labelled queries. Prompt changes tend to
+improve the query that motivated them while quietly regressing others; the files
+in this directory are the guard against that.
 
-## The set
+## Current state
 
-`queries.md` (to be written **before** phase 1 retrieval code) holds ~40 queries
-against the owner's real library, each with a hand-labelled correct answer, in
-four groups:
+[queries.md](queries.md) contains 40 queries in four groups, but the expected
+answers are still blank because they must name items in the owner's library.
+[results-phase1.md](results-phase1.md) records fixture-library mechanism tests,
+not a real-library quality benchmark.
 
-| Group | Example | Tests |
-|---|---|---|
-| **Plot recall** | *"guy loses his memory, covers himself in tattoos"* | semantic retrieval |
-| **Vibe** | *"something funny but not stupid, for a Sunday"* | re-ranking, taste |
-| **Constraints** | *"90s sci-fi under two hours I haven't seen"* | plan → filters |
-| **Not-Concierge** | *"blade"*, *"the of"* | the router says native |
+Do not publish recall, ranking, or quality claims until the expected answers are
+filled and the live evaluation has run.
 
-The fourth group matters as much as the first three. A router that sends
-everything to a model is expensive and slow; one that sends nothing looks
-broken.
+## Labelling the set
 
-## Running it
+For each query, put the title you would be annoyed not to see in the `Expected`
+column. Separate multiple acceptable titles with semicolons. Leave a query
+blank when the library has no defensible answer; the harness skips it.
+
+The groups diagnose different parts of the system:
+
+| Group | What it tests |
+|---|---|
+| Plot recall | Enrichment and semantic retrieval |
+| Vibe | Themes, semantic retrieval, and ranking |
+| Constraints | Planning and fail-open filters |
+| Not-Concierge | Correct free/native routing |
+
+## Running the evaluation
+
+Build the index first, then run:
 
 ```bash
-python3 eval/run-eval.py --url http://192.168.1.9:8096 --key "$JELLYFIN_API_KEY"
+python3 eval/run-eval.py \
+  --url http://your-jellyfin-server:8096 \
+  --key "$JELLYFIN_API_KEY"
 ```
 
-`run-eval.py` reads `queries.md`, runs each labelled query against the live
-plugin, and writes `results-phase1.md` itself. It talks to the same HTTP endpoint
-a client would, so what it measures is what a user would actually get.
+Use `--dry-run` to validate edits without making search requests. The script
+uses `POST /Concierge/Search` and writes the result report itself.
 
-Each phase records its numbers in `results-<phase>.md` and **commits them**:
+An API key can be created under **Dashboard → API Keys**. Never commit it or
+paste it into results.
 
-- **recall@40**, recall@5, recall@1, MRR
-- cost per query (mean, p95)
-- latency (mean, p95)
-- router split — how many queries took the free path
+## Reading the report
 
-**Read recall@40 separately from recall@1.** They fail for different reasons and
-have different fixes. If the right film never reaches the top 40, the re-ranker
-never sees it and no prompt work can recover it — that's retrieval, and the
-lever is the enrichment pass. If it reaches the shortlist but lands at rank 12,
-that's ranking, and the lever is the re-rank prompt. From the results page the
-two look identical.
+- **Recall@40** asks whether retrieval put the right item in the shortlist. A
+  miss here cannot be fixed by the re-ranker.
+- **Recall@5**, **recall@1**, and **MRR** describe ordering once the candidate
+  is retrievable.
+- **Router split** shows how often the free/native path handled the query.
+- **Cost and latency** must be read alongside quality; a better ranking that is
+  too slow or expensive may still be the wrong configuration.
 
-The first measurement to take, before anything else is tuned: **the same set run
-against overviews alone, then against enriched documents.** That delta says
-whether enrichment is carrying the feature or decorating it.
+The first controlled comparison should use the same labelled set twice: once
+with enrichment disabled and once with enrichment enabled. That delta measures
+whether paid enrichment is carrying recall or merely decorating results.
 
-Phase 1's free path (BM25 + vectors + fusion, no model) is the baseline. Every
-later phase is measured as a delta against it, and a phase that doesn't beat it
-by enough to justify its cost per query is a phase that shipped the wrong thing.
+Commit generated reports only when they state the exact configuration, models,
+index generation, and date used. Fixture results and real-library results must
+remain clearly labelled.

@@ -9,6 +9,7 @@ using Jellyfin.Plugin.Concierge.Services.Indexing;
 using Jellyfin.Plugin.Concierge.Services.Quotes;
 using Jellyfin.Plugin.Concierge.Services.Runs;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -68,6 +69,8 @@ namespace Jellyfin.Plugin.Concierge.Api
         private readonly IIndexStore _store;
         private readonly IQueryLogStore _queryLog;
         private readonly IIndexRunLogStore _indexRuns;
+        private readonly ITaskManager _taskManager;
+        private readonly IndexBuildRequest _indexBuildRequest;
         private readonly IQuoteStore _quotes;
         private readonly ILogger<ConciergeController> _logger;
 
@@ -76,6 +79,8 @@ namespace Jellyfin.Plugin.Concierge.Api
             IIndexStore store,
             IQueryLogStore queryLog,
             IIndexRunLogStore indexRuns,
+            ITaskManager taskManager,
+            IndexBuildRequest indexBuildRequest,
             IQuoteStore quotes,
             ILogger<ConciergeController> logger)
         {
@@ -83,6 +88,8 @@ namespace Jellyfin.Plugin.Concierge.Api
             _store = store;
             _queryLog = queryLog;
             _indexRuns = indexRuns;
+            _taskManager = taskManager;
+            _indexBuildRequest = indexBuildRequest;
             _quotes = quotes;
             _logger = logger;
         }
@@ -243,6 +250,46 @@ namespace Jellyfin.Plugin.Concierge.Api
         [Authorize(Policy = Policies.RequiresElevation)]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<IndexRunSummary?> CurrentIndexRun() => Ok(_indexRuns.Current());
+
+        /// <summary>
+        /// Queues a complete regeneration of the Concierge search index.
+        /// </summary>
+        /// <remarks>
+        /// Unlike the normal incremental build, this deliberately re-runs enrichment
+        /// and embeddings for every item. The old index remains available while the
+        /// replacement is built and is only superseded after a successful write.
+        /// </remarks>
+        /// <response code="202">Regeneration queued.</response>
+        /// <response code="409">An index build is already running.</response>
+        /// <response code="503">Jellyfin has not registered the index task.</response>
+        /// <returns>An action result.</returns>
+        [HttpPost("Index/Regenerate")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public ActionResult RegenerateIndex()
+        {
+            var worker = _taskManager.ScheduledTasks.FirstOrDefault(w =>
+                string.Equals(w.ScheduledTask.Key, IndexBuildTask.TaskKey, StringComparison.Ordinal));
+
+            if (worker is null)
+            {
+                return StatusCode(
+                    StatusCodes.Status503ServiceUnavailable,
+                    "The Concierge index task is not registered.");
+            }
+
+            if (worker.State != TaskState.Idle || _indexRuns.Current() is not null)
+            {
+                return Conflict("An index build is already in progress.");
+            }
+
+            _indexBuildRequest.RequestFullRegeneration();
+            _taskManager.QueueIfNotRunning<IndexBuildTask>();
+            _logger.LogInformation("Concierge: a full index regeneration was requested from the plugin settings");
+            return Accepted();
+        }
 
         /// <summary>
         /// One build's whole record: every step, every model call with its tokens and

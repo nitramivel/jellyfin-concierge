@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.19.0.0",
+        "changelog": "Adds full index regeneration from the Index tab: rebuild enrichment and embeddings from scratch through Jellyfin task management, reject overlapping builds, show progress, and keep the active index until replacement succeeds. Refreshes project documentation and removes stale handoff and release-note files.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.19.0.0/concierge_0.19.0.0.zip",
+        "checksum": "c08ed89a563c55841526923141e0d48e",
+        "timestamp": "2026-08-02T20:03:18Z"
+      },
+      {
         "version": "0.18.0.0",
         "changelog": "The row is called Matches, sits at the top of the search page, says whether it is searching or ranking, and the wait before a paid search is now a setting.",
         "targetAbi": "10.11.11.0",
