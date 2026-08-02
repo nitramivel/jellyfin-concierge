@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Concierge.Configuration;
+using Jellyfin.Plugin.Concierge.Core.Llm;
 using Jellyfin.Plugin.Concierge.Core.Usage;
 using Jellyfin.Plugin.Concierge.Services;
 using Jellyfin.Plugin.Concierge.Services.Indexing;
@@ -67,6 +69,7 @@ namespace Jellyfin.Plugin.Concierge.Api
     {
         private readonly SearchService _search;
         private readonly IIndexStore _store;
+        private readonly EnrichmentService _enrichment;
         private readonly IQueryLogStore _queryLog;
         private readonly IIndexRunLogStore _indexRuns;
         private readonly ITaskManager _taskManager;
@@ -77,6 +80,7 @@ namespace Jellyfin.Plugin.Concierge.Api
         public ConciergeController(
             SearchService search,
             IIndexStore store,
+            EnrichmentService enrichment,
             IQueryLogStore queryLog,
             IIndexRunLogStore indexRuns,
             ITaskManager taskManager,
@@ -86,6 +90,7 @@ namespace Jellyfin.Plugin.Concierge.Api
         {
             _search = search;
             _store = store;
+            _enrichment = enrichment;
             _queryLog = queryLog;
             _indexRuns = indexRuns;
             _taskManager = taskManager;
@@ -462,6 +467,149 @@ namespace Jellyfin.Plugin.Concierge.Api
                 track?.SourcePath ?? string.Empty,
                 track?.ExtractedUtc,
                 provenance));
+        }
+
+        /// <summary>
+        /// Redoes one item: asks the model again, and optionally forgets its dialogue.
+        /// </summary>
+        /// <param name="itemId">The item.</param>
+        /// <param name="request">What to redo, and on which model.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <response code="200">What was done.</response>
+        /// <response code="404">No such item in the index.</response>
+        /// <response code="409">An index build is running; it owns the stores.</response>
+        /// <returns>What was done.</returns>
+        /// <remarks>
+        /// Runs inline rather than queueing a task, because it is one item and the
+        /// caller is watching. It writes the enrichment store and stops there: the
+        /// vector rows are rebuilt by the index build, and until that runs the item
+        /// shows as waiting to be indexed rather than pretending to be live.
+        /// </remarks>
+        [HttpPost("Library/{itemId}/Reindex")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<ActionResult<ReindexResult>> Reindex(
+            [FromRoute] Guid itemId,
+            [FromBody] ReindexRequest request,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+
+            var config = Plugin.Instance?.Configuration;
+            if (config is null)
+            {
+                return NotFound();
+            }
+
+            // A build owns the enrichment store while it runs; writing underneath it
+            // would have one of the two writes silently lose.
+            if (_indexRuns.Current() is not null)
+            {
+                return Conflict("An index build is running. Wait for it to finish.");
+            }
+
+            var index = await LoadIndexAsync(cancellationToken).ConfigureAwait(false);
+            var document = index?.Documents.FirstOrDefault(d => d.ItemId == itemId);
+
+            if (document is null)
+            {
+                return NotFound();
+            }
+
+            var forgot = request.Quotes
+                && await _quotes.ForgetAsync(itemId, cancellationToken).ConfigureAwait(false);
+
+            if (!request.Enrichment)
+            {
+                return Ok(new ReindexResult(
+                    document.Title, false, "skipped", string.Empty, string.Empty, 0m, 0, 0, 0, forgot,
+                    forgot
+                        ? "Dialogue forgotten. Run the dialogue extraction task to read it again."
+                        : "Nothing was asked for."));
+            }
+
+            // The chosen profile and thinking apply to this call only. Nothing is
+            // written back to the configuration — trying a better model on one
+            // stubborn item should not silently become everyone's default.
+            var profiles = ModelProfiles.Normalize(config);
+            var profile = ModelProfiles.Resolve(
+                profiles,
+                string.IsNullOrWhiteSpace(request.ModelProfileId)
+                    ? config.EnrichmentModelProfileId
+                    : request.ModelProfileId);
+
+            var forCall = new ModelProfile
+            {
+                Id = profile.Id,
+                Name = profile.Name,
+                Provider = profile.Provider,
+                Model = profile.Model,
+                ApiKey = profile.ApiKey,
+                BaseUrl = profile.BaseUrl,
+                Thinking = request.Thinking,
+                InputCostPerMillion = profile.InputCostPerMillion,
+                CachedInputCostPerMillion = profile.CachedInputCostPerMillion,
+                OutputCostPerMillion = profile.OutputCostPerMillion,
+            };
+
+            // A configuration for this one call: the chosen profile as the enrichment
+            // profile, and a batch of one. Nothing is persisted.
+            var single = new PluginConfiguration
+            {
+                ModelProfiles = [forCall],
+                DefaultModelProfileId = forCall.Id,
+                EnrichmentModelProfileId = forCall.Id,
+                EnableEnrichment = true,
+                EnableThinking = config.EnableThinking,
+                EnrichmentThinking = request.Thinking,
+                EnrichmentBatchSize = 1,
+                MaxAsksPerItem = config.MaxAsksPerItem,
+                MaxOutputTokens = config.MaxOutputTokens,
+            };
+
+            var result = await _enrichment.EnrichAsync(
+                    [document with { Enrichment = null }],
+                    single,
+                    NullIndexRunLog.Instance,
+                    (_, _) => Task.CompletedTask,
+                    null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            var written = result.Enrichment.FirstOrDefault();
+
+            if (written is not null)
+            {
+                var stored = await _store.LoadEnrichmentAsync(cancellationToken).ConfigureAwait(false);
+                var merged = stored.Values.Where(e => e.ItemId != itemId).Append(written).ToList();
+                await _store.SaveEnrichmentAsync(merged, cancellationToken).ConfigureAwait(false);
+            }
+
+            var enrichment = written?.Enrichment;
+            var known = enrichment is { IsEmpty: false };
+
+            _logger.LogInformation(
+                "Concierge: re-enriched {Title} on {Model} — {Outcome}, ${Cost:F5}",
+                document.Title,
+                forCall.Model,
+                known ? "enriched" : "unknown-to-model",
+                result.CostUsd);
+
+            return Ok(new ReindexResult(
+                document.Title,
+                known,
+                written is null ? "failed" : known ? "enriched" : "unknown-to-model",
+                forCall.Model,
+                ThinkingPolicy.Explain(single, ThinkingPass.Enrichment, forCall),
+                result.CostUsd,
+                enrichment?.Asks.Count ?? 0,
+                enrichment?.Themes.Count ?? 0,
+                enrichment?.Premise.Length ?? 0,
+                forgot,
+                "Saved. Run the index build to embed it — until then this item shows as "
+                    + "waiting to be indexed and searches still use the previous answers."));
         }
 
         /// <summary>

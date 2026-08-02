@@ -142,3 +142,60 @@ namespace Jellyfin.Plugin.Concierge.Api
         DateTime IndexBuiltUtc,
         long Generation);
 }
+
+namespace Jellyfin.Plugin.Concierge.Api
+{
+    /// <summary>
+    /// Redo one item, on a model of the caller's choosing.
+    /// </summary>
+    /// <remarks>
+    /// Per item because the reasons are per item: a film whose dialogue was extracted
+    /// from the wrong language track, or one the default model wrote nothing useful
+    /// about. Rebuilding the library to fix one of those costs a few hundred items'
+    /// worth of nothing.
+    /// </remarks>
+    /// <param name="ModelProfileId">
+    /// Which profile to ask, or empty to use whatever the enrichment pass normally
+    /// uses. Trying a better model on one stubborn item is most of the point.
+    /// </param>
+    /// <param name="Thinking">
+    /// Inherit, On or Off for this one call. Thinking on a single item costs seconds
+    /// nobody is waiting on, which is a very different trade from a whole build.
+    /// </param>
+    /// <param name="Enrichment">Whether to ask the model again.</param>
+    /// <param name="Quotes">
+    /// Whether to forget the extracted dialogue so the next extraction looks again.
+    /// This is the one for a wrong-language subtitle: the media file has not changed,
+    /// so nothing else will make the extractor reconsider it.
+    /// </param>
+    public sealed record ReindexRequest(
+        string? ModelProfileId = null,
+        Configuration.ThinkingMode Thinking = Configuration.ThinkingMode.Inherit,
+        bool Enrichment = true,
+        bool Quotes = false);
+
+    /// <summary>What redoing one item did.</summary>
+    /// <param name="Title">The item.</param>
+    /// <param name="Enriched">Whether the model returned something usable.</param>
+    /// <param name="Outcome">enriched, unknown-to-model, failed, or skipped.</param>
+    /// <param name="Model">Which model answered.</param>
+    /// <param name="Thinking">How thinking resolved, and which rule decided it.</param>
+    /// <param name="CostUsd">What this one item cost.</param>
+    /// <param name="Asks">How many asks came back.</param>
+    /// <param name="Themes">How many themes came back.</param>
+    /// <param name="PremiseChars">How much premise came back.</param>
+    /// <param name="QuotesForgotten">Whether stored dialogue was discarded.</param>
+    /// <param name="Note">What still has to happen for this to reach searches.</param>
+    public sealed record ReindexResult(
+        string Title,
+        bool Enriched,
+        string Outcome,
+        string Model,
+        string Thinking,
+        decimal CostUsd,
+        int Asks,
+        int Themes,
+        int PremiseChars,
+        bool QuotesForgotten,
+        string Note);
+}

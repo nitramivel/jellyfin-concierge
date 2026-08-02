@@ -60,6 +60,8 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 => Task.FromResult<IndexState?>(_index.State);
 
             public Task DeleteAsync(CancellationToken ct) => Task.CompletedTask;
+
+            public Task<bool> ForgetAsync(Guid itemId, CancellationToken ct) => Task.FromResult(false);
         }
 
         /// <summary>Throws if used, so a Native query touching the network fails loudly.</summary>
@@ -139,6 +141,8 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 => Task.FromResult<QuoteTrack?>(null);
 
             public Task SaveAsync(QuoteTrack track, CancellationToken ct) => Task.CompletedTask;
+
+            public Task<bool> ForgetAsync(Guid itemId, CancellationToken ct) => Task.FromResult(false);
 
             public Task<IReadOnlyList<QuoteTrack>> LoadAllAsync(CancellationToken ct)
                 => Task.FromResult<IReadOnlyList<QuoteTrack>>([]);

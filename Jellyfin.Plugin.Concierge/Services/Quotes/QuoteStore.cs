@@ -114,6 +114,18 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task.</returns>
         Task DeleteAsync(CancellationToken cancellationToken);
+
+        /// <summary>Forgets one item's extraction, so the next run redoes it.</summary>
+        /// <param name="itemId">The item.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Whether there was anything to forget.</returns>
+        /// <remarks>
+        /// Extraction is skipped when a track already exists and the file behind it is
+        /// unchanged. That is right for a rebuild and wrong for a track that picked the
+        /// wrong language — the file has not changed and never will, so nothing short
+        /// of forgetting it will make the next run look again.
+        /// </remarks>
+        Task<bool> ForgetAsync(Guid itemId, CancellationToken cancellationToken);
     }
 
     /// <summary>
@@ -270,6 +282,37 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
         }
 
         /// <inheritdoc />
+        /// <inheritdoc />
+        public async Task<bool> ForgetAsync(Guid itemId, CancellationToken cancellationToken)
+        {
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var file = PathFor(itemId);
+
+                if (!File.Exists(file))
+                {
+                    return false;
+                }
+
+                File.Delete(file);
+                _logger.LogInformation(
+                    "Concierge: forgot the extracted dialogue for {ItemId}; the next extraction will look again",
+                    itemId);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Concierge: could not forget the dialogue for {ItemId}", itemId);
+                return false;
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
         public async Task DeleteAsync(CancellationToken cancellationToken)
         {
             await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);

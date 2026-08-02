@@ -292,7 +292,6 @@
 
         return null;
     }
-    }
 
     function modeOn() {
         try {

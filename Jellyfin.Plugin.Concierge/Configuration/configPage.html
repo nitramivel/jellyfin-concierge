@@ -2302,6 +2302,37 @@
                             + escapeHtml(d.QuoteSample.join('\n')) + '</div>';
                     }
 
+                    /* Redo this one item.
+                     *
+                     * Per item because the reasons are per item — a wrong-language
+                     * subtitle track, or a title the default model wrote nothing
+                     * useful about. Rebuilding the library to fix one of those pays
+                     * for a few hundred items of nothing.
+                     *
+                     * The model and thinking chosen here apply to this call only and
+                     * are never written back: trying a better model on one stubborn
+                     * film should not quietly become everyone's default. */
+                    html += '<h4>Redo this item</h4>'
+                        + '<div style="display:flex;gap:0.5em;flex-wrap:wrap;align-items:center;">'
+                        + '<select is="emby-select" id="ConciergeRedoModel" '
+                        + 'class="emby-select-withcolor emby-select" style="flex:1 1 14em;"></select>'
+                        + '<select is="emby-select" id="ConciergeRedoThinking" '
+                        + 'class="emby-select-withcolor emby-select" style="flex:0 1 12em;">'
+                        + '<option value="Inherit">Thinking: as configured</option>'
+                        + '<option value="On">Thinking: on</option>'
+                        + '<option value="Off">Thinking: off</option>'
+                        + '</select>'
+                        + '<button is="emby-button" type="button" id="ConciergeRedoRun" class="raised">'
+                        + 'Ask again</button>'
+                        + '</div>'
+                        + '<label class="emby-checkbox-label" style="margin-top:0.5em;display:block;">'
+                        + '<input is="emby-checkbox" type="checkbox" id="ConciergeRedoQuotes" />'
+                        + '<span>Also forget its dialogue</span></label>'
+                        + '<div class="conciergePassWhen">For a track extracted in the wrong language. '
+                        + 'The media file has not changed, so nothing else will make the extractor look '
+                        + 'again &mdash; run the dialogue task afterwards.</div>'
+                        + '<div id="ConciergeRedoResult" class="conciergeRunMeta"></div>';
+
                     // Where this answer came from. Tied through the enrichment store
                     // rather than the run files, so it survives those being pruned —
                     // and says so when the run itself is gone.
@@ -2332,6 +2363,52 @@
                     }
 
                     target.innerHTML = html + '</div>';
+
+                    fillProfileSelect(
+                        target.querySelector('#ConciergeRedoModel'),
+                        modelProfiles,
+                        '',
+                        'Use the enrichment profile');
+
+                    target.querySelector('#ConciergeRedoRun').addEventListener('click', function () {
+                        var button = this;
+                        var out = target.querySelector('#ConciergeRedoResult');
+
+                        button.disabled = true;
+                        out.textContent = 'Asking\u2026';
+
+                        ApiClient.ajax({
+                            type: 'POST',
+                            url: ApiClient.getUrl('Concierge/Library/' + itemId + '/Reindex'),
+                            data: JSON.stringify({
+                                ModelProfileId: target.querySelector('#ConciergeRedoModel').value,
+                                Thinking: target.querySelector('#ConciergeRedoThinking').value,
+                                Enrichment: true,
+                                Quotes: target.querySelector('#ConciergeRedoQuotes').checked
+                            }),
+                            contentType: 'application/json',
+                            dataType: 'json'
+                        }).then(function (r) {
+                            button.disabled = false;
+                            out.innerHTML = '<strong>' + escapeHtml(r.Outcome) + '</strong> on '
+                                + escapeHtml(r.Model) + ' · ' + escapeHtml(String(r.Asks)) + ' asks, '
+                                + escapeHtml(String(r.Themes)) + ' themes · '
+                                + escapeHtml(money(r.CostUsd))
+                                + '<br/>' + escapeHtml(r.Thinking)
+                                + (r.QuotesForgotten ? '<br/>Dialogue forgotten.' : '')
+                                + '<br/>' + escapeHtml(r.Note);
+
+                            // Re-read so the item's chips and the pending banner tell
+                            // the truth about what just happened.
+                            loadLibrary();
+                            openLibraryItem(itemId);
+                        }, function (e) {
+                            button.disabled = false;
+                            out.innerHTML = '<span class="conciergeBad">'
+                                + escapeHtml((e && e.statusText) || 'That did not work.')
+                                + '</span>';
+                        });
+                    });
 
                     var link = target.querySelector('.conciergeOpenRun');
                     if (link) {

@@ -76,6 +76,60 @@ namespace Jellyfin.Plugin.Concierge.Tests
             Assert.Null(ScriptInjector.Patch("{\"not\":\"html\"}"));
         }
 
+        /// <summary>
+        /// The script's brackets balance.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is the test that should have existed already.</b> A rewrite of
+        /// <c>position()</c> in 0.18.0.0 deleted a function and left its closing brace
+        /// behind. That is a syntax error, so the whole script died on load and the
+        /// search bar silently did nothing for five releases — while the settings
+        /// page's own search kept working, which is why the query log looked healthy.
+        /// <para>
+        /// Every other test here passed throughout. They match strings and count
+        /// occurrences, and none of that can see an unbalanced brace. Comments and
+        /// string literals are stripped first because the styles are full of CSS
+        /// braces and the prose is full of apostrophes.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void TheScriptsBracketsBalance()
+        {
+            var code = WithoutStringLiterals(Script);
+            var stack = new Stack<(char Open, int Line)>();
+            var line = 1;
+            var pairs = new Dictionary<char, char> { [')'] = '(', [']'] = '[', ['}'] = '{' };
+
+            foreach (var c in code)
+            {
+                if (c == '\n')
+                {
+                    line++;
+                }
+                else if (c is '(' or '[' or '{')
+                {
+                    stack.Push((c, line));
+                }
+                else if (pairs.TryGetValue(c, out var open))
+                {
+                    Assert.True(
+                        stack.Count > 0,
+                        $"unmatched closing '{c}' on line {line}");
+
+                    var top = stack.Pop();
+                    Assert.True(
+                        top.Open == open,
+                        $"'{top.Open}' opened on line {top.Line} is closed by '{c}' on line {line}");
+                }
+            }
+
+            Assert.True(
+                stack.Count == 0,
+                stack.Count == 0
+                    ? string.Empty
+                    : $"'{stack.Peek().Open}' opened on line {stack.Peek().Line} is never closed");
+        }
+
         [Fact]
         public void EveryFunctionItCallsIsOneItDefines()
         {
