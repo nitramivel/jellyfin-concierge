@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.20.0.0",
+        "changelog": "Run logs record what each item got, break cost down by model with the rates used, and project what an unfinished run would have cost.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.20.0.0/concierge_0.20.0.0.zip",
+        "checksum": "b4350d69aff361348fea55df2c0e0cb9",
+        "timestamp": "2026-08-02T20:49:00Z"
+      },
+      {
         "version": "0.19.0.0",
         "changelog": "Adds full index regeneration from the Index tab: rebuild enrichment and embeddings from scratch through Jellyfin task management, reject overlapping builds, show progress, and keep the active index until replacement succeeds. Refreshes project documentation and removes stale handoff and release-note files.",
         "targetAbi": "10.11.11.0",

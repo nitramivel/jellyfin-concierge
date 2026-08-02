@@ -1,4 +1,8 @@
-# Concierge 0.19.0.0 — run logs that answer the question
+# Concierge 0.20.0.0 — run logs that answer the question
+
+Follows 0.19.0.0, which made full regeneration a deliberate choice. This is the
+other half: when a run does cost twenty times the last one, the log now says
+why.
 
 Your 2 August rebuild cost $0.40 in five minutes and was cancelled after 30 of
 269 items. The log recorded that faithfully. What it did not say was that the
