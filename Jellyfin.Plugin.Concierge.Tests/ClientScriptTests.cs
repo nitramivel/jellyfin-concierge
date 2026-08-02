@@ -421,6 +421,52 @@ namespace Jellyfin.Plugin.Concierge.Tests
             Assert.Matches(@"var DEBOUNCE_MS = \d+;", served);
         }
 
+        /// <summary>
+        /// The toggle is an icon in the search box, in the slot Jellyseerr's used.
+        /// </summary>
+        /// <remarks>
+        /// The position values are copied from Jellyfin Enhanced's own rule rather
+        /// than picked: the two are alternatives for the same corner of the same box,
+        /// so anything hand-chosen sits a few pixels off it.
+        /// </remarks>
+        [Fact]
+        public void TheModeToggleIsAnIconWhereTheJellyseerrIconSits()
+        {
+            var code = WithoutComments(Script);
+
+            Assert.Contains("right:10px;top:68%", code, StringComparison.Ordinal);
+            Assert.Contains("translateY(-50%)", code, StringComparison.Ordinal);
+
+            // A shipped font glyph, so there is no asset to host and it takes the
+            // theme's colour.
+            Assert.Contains("material-icons", code, StringComparison.Ordinal);
+            Assert.DoesNotContain("<img", code, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Their icon is hidden by a rule, never by touching their element.
+        /// </summary>
+        /// <remarks>
+        /// The only place this script affects another plugin's interface. A style rule
+        /// leaves their element and its click handler intact, so nothing of theirs can
+        /// break — and their re-creating the icon on every render does not fight us.
+        /// It is also a setting, because that icon is their Seerr-only filter and
+        /// taking a control away should not need a release to undo.
+        /// </remarks>
+        [Fact]
+        public void TheJellyseerrIconIsHiddenByStyleAndOnlyWhenAskedFor()
+        {
+            var code = WithoutComments(Script);
+
+            Assert.Contains("#jellyseerr-search-icon{display:none!important;}", code, StringComparison.Ordinal);
+            Assert.Contains("HIDE_SEERR_ICON", code, StringComparison.Ordinal);
+            Assert.Matches(@"var HIDE_SEERR_ICON = (?:true|false);", Script);
+
+            // Nothing of theirs is removed, moved or written to.
+            Assert.DoesNotContain("jellyseerr-search-icon').remove", code, StringComparison.Ordinal);
+            Assert.DoesNotContain("jellyseerr-search-icon').style", code, StringComparison.Ordinal);
+        }
+
         [Fact]
         public void TheRowIsHeadedMatches()
         {

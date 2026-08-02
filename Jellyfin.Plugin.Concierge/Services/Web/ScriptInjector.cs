@@ -204,10 +204,16 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
 
             var debounce = Math.Clamp(config.SearchDebounceMs, 250, 30000);
 
-            return System.Text.RegularExpressions.Regex.Replace(
+            script = System.Text.RegularExpressions.Regex.Replace(
                 script,
                 @"var DEBOUNCE_MS = \d+;",
                 "var DEBOUNCE_MS = " + debounce.ToString(CultureInfo.InvariantCulture) + ";");
+
+            return System.Text.RegularExpressions.Regex.Replace(
+                script,
+                @"var HIDE_SEERR_ICON = (?:true|false);",
+                "var HIDE_SEERR_ICON = "
+                    + (config.HideJellyseerrIcon ? "true" : "false") + ";");
         }
 
         private async Task ServeScriptAsync(HttpContext context)

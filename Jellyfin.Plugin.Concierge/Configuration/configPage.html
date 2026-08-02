@@ -777,6 +777,21 @@
                         </div>
                     </div>
 
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="HideJellyseerrIcon" />
+                            <span>Hide the Jellyseerr icon in the search box</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Concierge's own icon sits in that corner. Off, both are there and they overlap.
+                            <br />
+                            <strong>That icon is Jellyfin Enhanced's Seerr-only filter</strong>, so hiding it
+                            takes that control away &mdash; untick this to get it back. It is hidden with a
+                            style rule rather than by removing anything, so their element and its click
+                            handler are untouched.
+                        </div>
+                    </div>
+
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="RerankWhyMaxChars">Longest match reason (characters)</label>
                         <input id="RerankWhyMaxChars" type="number" step="10" min="10" max="300" class="emby-input" />
@@ -1190,6 +1205,7 @@
                     config.PaidQueriesPerUserPerHour === undefined ? 30 : config.PaidQueriesPerUserPerHour;
                 page.querySelector('#RerankShortlistSize').value = config.RerankShortlistSize || 40;
                 page.querySelector('#SearchDebounceMs').value = config.SearchDebounceMs || 2000;
+                page.querySelector('#HideJellyseerrIcon').checked = config.HideJellyseerrIcon !== false;
                 page.querySelector('#RerankWhyMaxChars').value = config.RerankWhyMaxChars || 60;
                 page.querySelector('#RerankExplainCount').value =
                     config.RerankExplainCount === 0 ? 0 : (config.RerankExplainCount || 8);
@@ -1243,6 +1259,7 @@
                         parseInt(page.querySelector('#PaidQueriesPerUserPerHour').value, 10) || 0;
                     config.RerankShortlistSize = parseInt(page.querySelector('#RerankShortlistSize').value, 10) || 40;
                     config.SearchDebounceMs = parseInt(page.querySelector('#SearchDebounceMs').value, 10) || 2000;
+                    config.HideJellyseerrIcon = page.querySelector('#HideJellyseerrIcon').checked;
                     config.RerankWhyMaxChars = parseInt(page.querySelector('#RerankWhyMaxChars').value, 10) || 60;
 
                     // Zero is a real answer here — "explain everything" — so it cannot

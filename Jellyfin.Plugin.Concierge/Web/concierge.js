@@ -58,6 +58,10 @@
     // almost immediately and the paid answer replaces it when it lands.
     var PREVIEW_MS = 250;
 
+    // Substituted when the script is served, from the plugin settings. Hides
+    // Jellyfin Enhanced's Seerr icon so that Concierge's can have that corner.
+    var HIDE_SEERR_ICON = true;
+
     // Long enough that a title lookup is settled before we ask. Native results
     // render on their own timeline regardless — hard rule 2 — so this delay costs
     // the user nothing, it only avoids asking about half-typed words.
@@ -132,16 +136,37 @@
     var MODE_STYLES =
         '.concierge-hidden{display:none!important;}' +
 
-        // The chip. Shaped like the client's own pill controls rather than invented,
-        // and it states which mode it is IN, not which one it would switch to.
-        '#concierge-toggle{display:inline-flex;align-items:center;gap:.4em;' +
-        'margin:0 0 0 .6em;padding:.32em .8em;border:1px solid currentColor;' +
-        'border-radius:1.2em;background:transparent;color:inherit;cursor:pointer;' +
-        'font:inherit;font-size:.86em;opacity:.62;vertical-align:middle;' +
-        'transition:opacity .15s,background-color .15s;}' +
-        '#concierge-toggle:hover{opacity:.9;}' +
-        '#concierge-toggle[aria-pressed="true"]{opacity:1;' +
-        'background:rgba(127,127,127,.22);}' +
+        /* The icon, in the slot the Jellyseerr one occupies.
+         *
+         * Position copied from Jellyfin Enhanced's own rule — right 10px, top 68%,
+         * translateY(-50%) — because the two are alternatives for the same corner of
+         * the same box, and a hand-picked offset would sit a few pixels off it.
+         *
+         * A Material Icons glyph rather than an image: Jellyfin already ships the
+         * font, so there is no asset to host, nothing to fetch, and it inherits the
+         * theme's colour instead of being a fixed-colour PNG. */
+        '#searchPage .searchFields .inputContainer,' +
+        '#searchPage .searchFields{position:relative;}' +
+        '#concierge-toggle{position:absolute;right:10px;top:68%;' +
+        'transform:translateY(-50%);z-index:10;display:inline-flex;align-items:center;' +
+        'justify-content:center;width:2em;height:2em;padding:0;border:0;border-radius:50%;' +
+        'background:transparent;color:inherit;cursor:pointer;opacity:.55;' +
+        'transition:opacity .2s,background-color .2s;}' +
+        '#concierge-toggle:hover{opacity:.95;background:rgba(127,127,127,.2);}' +
+        '#concierge-toggle[aria-pressed="true"]{opacity:1;color:#00a4dc;}' +
+        '#concierge-toggle .material-icons{font-size:1.5em;}' +
+
+        /* Their icon, hidden by OUR stylesheet rather than by touching their node.
+         *
+         * This is the only place the script affects another plugin's UI, it is here
+         * because the owner asked for it, and it is a setting so it can be undone
+         * without a release. A rule is the gentlest mechanism available: their
+         * element still exists and their click handler still works, it simply is not
+         * painted — so nothing of theirs can break, and they re-create the icon on
+         * every render without fighting us. */
+        (HIDE_SEERR_ICON
+            ? '#searchPage #jellyseerr-search-icon{display:none!important;}'
+            : '') +
 
         // Full mode: the row stops being a row. A grid that fills the page is the
         // whole reason for taking it over — a horizontal strip in a page with
@@ -363,9 +388,17 @@
         var button = document.createElement('button');
         button.id = TOGGLE_ID;
         button.type = 'button';
-        button.title = 'Show only what Concierge found in your library';
+        button.title = 'Concierge: show only what is in your library';
+        button.setAttribute('aria-label', button.title);
         button.setAttribute('aria-pressed', modeOn() ? 'true' : 'false');
-        button.textContent = '\u2726 Concierge';
+
+        // A glyph, not an image. The font ships with Jellyfin, so nothing is
+        // fetched and it takes the theme's colour rather than being a fixed-colour
+        // asset that looks wrong in half of them.
+        var glyph = document.createElement('span');
+        glyph.className = 'material-icons';
+        glyph.textContent = 'auto_awesome';
+        button.appendChild(glyph);
 
         button.addEventListener('click', function () {
             var next = !modeOn();

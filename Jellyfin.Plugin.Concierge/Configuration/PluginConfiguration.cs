@@ -265,6 +265,23 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public int SearchDebounceMs { get; set; } = 2000;
 
         /// <summary>
+        /// Whether to hide Jellyfin Enhanced's Jellyseerr icon so Concierge's can take
+        /// that corner of the search box.
+        /// </summary>
+        /// <remarks>
+        /// <b>The only place this plugin affects another's interface.</b> Done with a
+        /// CSS rule rather than by touching their element: theirs still exists, its
+        /// click handler still works, and it simply is not painted — so nothing of
+        /// theirs can break and their re-creating it on every render does not fight us.
+        /// <para>
+        /// It is a setting because that icon is <em>their</em> Seerr-only filter
+        /// toggle, and hiding it takes that control away. Anyone who wants it back
+        /// should not need a release to get it.
+        /// </para>
+        /// </remarks>
+        public bool HideJellyseerrIcon { get; set; } = true;
+
+        /// <summary>
         /// How many of the ranked results get a reason written for them.
         /// </summary>
         /// <remarks>
