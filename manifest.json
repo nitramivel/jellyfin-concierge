@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.13.0.0",
+        "changelog": "Results appear in about a millisecond. The free keyword answer paints immediately and the ranked one replaces it when it lands, so nobody waits on the model to see something real.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.13.0.0/concierge_0.13.0.0.zip",
+        "checksum": "1f2b01fca4ad9e13a7e1a556401298b1",
+        "timestamp": "2026-08-02T08:03:20Z"
+      },
+      {
         "version": "0.12.0.0",
         "changelog": "Card text matches the native rows, the result count is the model's judgement instead of a fixed twelve, 40 candidates are considered, and EnableThinking finally does something on OpenAI.",
         "targetAbi": "10.11.11.0",

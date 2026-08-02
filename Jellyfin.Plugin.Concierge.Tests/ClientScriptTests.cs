@@ -209,6 +209,46 @@ namespace Jellyfin.Plugin.Concierge.Tests
         /// many results there are is a judgement the re-rank pass makes; the client's
         /// job is to draw them.
         /// </remarks>
+        /// <summary>
+        /// Something real on screen while the ranked answer is still being written.
+        /// </summary>
+        /// <remarks>
+        /// The two requests are independent and the cheap one can land second, so the
+        /// preview must check that the full answer for the same query has not already
+        /// arrived. Without that check, a slow preview overwrites the good answer with
+        /// the worse one and the row visibly gets worse a second after it got better.
+        /// </remarks>
+        [Fact]
+        public void AFreePreviewPaintsFirstAndNeverOverwritesTheRankedAnswer()
+        {
+            var code = WithoutComments(Script);
+
+            Assert.Contains("Preview: true", code, StringComparison.Ordinal);
+            Assert.Contains("settledQuery = query", code, StringComparison.Ordinal);
+            Assert.Contains("settledQuery === query", code, StringComparison.Ordinal);
+
+            var preview = Between(Script, "function runPreview(", "function run(");
+
+            Assert.Contains("lastQuery !== query", preview, StringComparison.Ordinal);
+            Assert.Contains("render(result, true)", preview, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ThePreviewFiresLongBeforeThePaidSearch()
+        {
+            var preview = Regex.Match(Script, @"var PREVIEW_MS = (\d+);");
+            var paid = Regex.Match(Script, @"var DEBOUNCE_MS = (\d+);");
+
+            Assert.True(preview.Success && paid.Success);
+
+            var previewMs = int.Parse(preview.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            var paidMs = int.Parse(paid.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+
+            Assert.True(
+                previewMs < paidMs / 2,
+                "the free preview must land well before the paid search, not just before it");
+        }
+
         [Fact]
         public void TheClientDrawsHoweverManyResultsItIsGiven()
         {

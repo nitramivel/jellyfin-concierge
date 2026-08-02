@@ -24,6 +24,13 @@
     // runs immediately for somebody who has finished typing deliberately.
     var DEBOUNCE_MS = 2000;
 
+    // The free half of the pipeline — keyword retrieval, no embedding, no model —
+    // answers in about a millisecond. Measured on this library: 0 ms median, 110 ms
+    // worst, against 6.4 s for the full path. There is no reason to look at an empty
+    // row for six seconds when a real answer already exists, so the preview fires
+    // almost immediately and the paid answer replaces it when it lands.
+    var PREVIEW_MS = 250;
+
     // Long enough that a title lookup is settled before we ask. Native results
     // render on their own timeline regardless — hard rule 2 — so this delay costs
     // the user nothing, it only avoids asking about half-typed words.
@@ -68,9 +75,15 @@
     }
 
     var timer = null;
+    var previewTimer = null;
     var lastQuery = '';
     var inFlight = null;
     var inFlightQuery = '';
+
+    // The query whose full answer is on screen. A preview must never overwrite the
+    // better answer to the same query — the requests are independent and the cheap
+    // one can land second.
+    var settledQuery = '';
 
     function log() {
         if (window.ConciergeDebug) {
@@ -316,15 +329,19 @@
         return section('Said in\u2026', cards);
     }
 
-    function render(result) {
+    function render(result, provisional) {
         var el = container();
         if (!el) {
             return;
         }
 
-        // Whatever we paint below is the answer to the query on screen, so the row
-        // stops being stale the moment it lands.
-        el.classList.remove('concierge-pending');
+        // A preview stays dimmed: it IS provisional, and the dimming is already the
+        // page's word for "a better answer is coming". The full answer clears it.
+        if (provisional) {
+            el.classList.add('concierge-pending');
+        } else {
+            el.classList.remove('concierge-pending');
+        }
 
         // The router has established that native substring search is the right
         // answer. Showing the free Concierge retrieval beside it would duplicate
@@ -346,7 +363,11 @@
         var html = '';
 
         if (hasHits) {
-            html += section('Concierge matches', renderHits(result));
+            html += section(
+                provisional
+                    ? 'Concierge matches <span class="concierge-note">(ranking\u2026)</span>'
+                    : 'Concierge matches',
+                renderHits(result));
         }
 
         html += renderQuotes(result);
@@ -357,6 +378,35 @@
         }
 
         el.innerHTML = html;
+    }
+
+    /* The free answer, on its own.
+     *
+     * Fired on its own short timer rather than chained off anything, because the two
+     * requests are independent: this one is keyword-only and returns in about a
+     * millisecond, the paid one takes seconds. It only ever paints when nothing
+     * better is already showing for the same query. */
+    function runPreview(query) {
+        if (!window.ApiClient || !window.ApiClient.ajax || settledQuery === query) {
+            return;
+        }
+
+        window.ApiClient.ajax({
+            type: 'POST',
+            url: window.ApiClient.getUrl('Concierge/Search'),
+            data: JSON.stringify({ Query: query, Limit: 20, Preview: true }),
+            contentType: 'application/json',
+            dataType: 'json'
+        }).then(function (result) {
+            // Three ways this is already stale: the text moved on, the full answer
+            // beat us to it, or the full answer for this very query has landed.
+            if (lastQuery !== query || settledQuery === query) {
+                return;
+            }
+
+            log('preview', query, (result.Hits || []).length);
+            render(result, true);
+        }, function () { /* A preview that fails costs nothing and says nothing. */ });
     }
 
     function run(query) {
@@ -394,8 +444,9 @@
 
             inFlight = null;
             inFlightQuery = '';
+            settledQuery = query;
             log('result', query, result.Route, (result.Hits || []).length);
-            render(result);
+            render(result, false);
         }, function (e) {
             if (inFlight !== token) {
                 return;
@@ -444,6 +495,7 @@
         var query = (value || '').trim();
 
         clearTimeout(timer);
+        clearTimeout(previewTimer);
 
         if (query.length < MIN_QUERY_LENGTH) {
             return;
@@ -462,6 +514,7 @@
 
         lastQuery = query;
         clearTimeout(timer);
+        clearTimeout(previewTimer);
 
         // The text on screen now names a different query. An earlier request may
         // still finish, but its token is invalid immediately so it can never paint
@@ -478,6 +531,7 @@
 
         markPending();
 
+        previewTimer = setTimeout(function () { runPreview(query); }, PREVIEW_MS);
         timer = setTimeout(function () { run(query); }, DEBOUNCE_MS);
     }
 

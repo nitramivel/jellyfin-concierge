@@ -20,7 +20,16 @@ namespace Jellyfin.Plugin.Concierge.Api
     /// <param name="Query">The user's text.</param>
     /// <param name="UserId">Who is searching, or null.</param>
     /// <param name="Limit">How many results to return; 0 uses the configured default.</param>
-    public sealed record SearchRequest(string Query, Guid? UserId, int Limit = 0);
+    /// <param name="Preview">
+    /// Answer from keyword retrieval alone, spending nothing. The free half of the
+    /// pipeline returns in about a millisecond, so a caller can show something real
+    /// immediately and replace it when the full answer arrives seconds later.
+    /// </param>
+    public sealed record SearchRequest(
+        string Query,
+        Guid? UserId,
+        int Limit = 0,
+        bool Preview = false);
 
     /// <summary>What the index currently holds.</summary>
     /// <param name="HasIndex">Whether a usable index exists.</param>
@@ -113,7 +122,12 @@ namespace Jellyfin.Plugin.Concierge.Api
             }
 
             var result = await _search
-                .SearchAsync(request.Query ?? string.Empty, request.UserId, effective, cancellationToken)
+                .SearchAsync(
+                    request.Query ?? string.Empty,
+                    request.UserId,
+                    effective,
+                    cancellationToken,
+                    request.Preview)
                 .ConfigureAwait(false);
 
             return Ok(result);

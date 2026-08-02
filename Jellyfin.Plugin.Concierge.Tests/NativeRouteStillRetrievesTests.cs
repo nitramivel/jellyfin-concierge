@@ -173,6 +173,88 @@ namespace Jellyfin.Plugin.Concierge.Tests
             MaxResults = 10,
         };
 
+        /// <summary>
+        /// The preview: the free half of the pipeline, answered on its own.
+        /// </summary>
+        /// <remarks>
+        /// Latency here is model generation and nothing else — 6.4 s at the median
+        /// against 11 ms of pipeline. The way to make a search feel instant is
+        /// therefore not to make the model faster but to stop making anyone wait for
+        /// it: keyword retrieval already has a real answer in about a millisecond,
+        /// and the ranked one replaces it when it arrives.
+        /// <para>
+        /// These assert the "free" half of that literally. The factories throw on
+        /// use, so a preview that reaches an embedding provider or a model fails the
+        /// test rather than quietly costing money on every keystroke.
+        /// </para>
+        /// </remarks>
+        [Theory]
+        [InlineData("dark and twisted")]
+        [InlineData("nostalgic 90s classics")]
+        [InlineData("lambs silence")]
+        public async Task APreviewSpendsNothingEvenOnAQueryThatWouldNormallyPay(string query)
+        {
+            var embeddings = new ExplodingEmbeddingFactory();
+            var spend = new NullSpendStore();
+            var service = Service(embeddings, new NullQueryLog(), spend);
+
+            var result = await service.SearchAsync(
+                query, null, Config(), CancellationToken.None, preview: true);
+
+            Assert.NotEmpty(result.Hits);
+            Assert.False(embeddings.WasUsed);
+            Assert.Empty(spend.Recorded);
+            Assert.Equal(0m, result.CostUsd);
+            Assert.False(result.Reranked);
+        }
+
+        /// <summary>
+        /// Previews stay out of the query log.
+        /// </summary>
+        /// <remarks>
+        /// They fire on every keystroke and cost nothing. Writing them to an
+        /// append-only file whose entire purpose is the record of what searches cost
+        /// would bury that record under rows that cost nothing.
+        /// </remarks>
+        [Fact]
+        public async Task APreviewIsNotWrittenToTheQueryLog()
+        {
+            var log = new NullQueryLog();
+            var service = Service(new ExplodingEmbeddingFactory(), log);
+
+            await service.SearchAsync(
+                "dark and twisted", null, Config(), CancellationToken.None, preview: true);
+
+            Assert.Empty(log.Records);
+
+            // …while a real search still is.
+            await service.SearchAsync("fargo", null, Config(), CancellationToken.None);
+
+            Assert.Single(log.Records);
+        }
+
+        /// <summary>
+        /// A preview never becomes a paid query by the back door.
+        /// </summary>
+        /// <remarks>
+        /// The dominant-winner rule upgrades a Native route to the full pipeline when
+        /// keyword scores are too close to trust. That rule must not fire on a
+        /// preview: the caller asked for the free answer, and an upgrade would spend
+        /// money on a request made every 250 ms.
+        /// </remarks>
+        [Fact]
+        public async Task ANoClearWinnerDoesNotUpgradeAPreviewIntoASpend()
+        {
+            var embeddings = new ExplodingEmbeddingFactory();
+            var service = Service(embeddings, new NullQueryLog());
+
+            var result = await service.SearchAsync(
+                "the", null, Config(), CancellationToken.None, preview: true);
+
+            Assert.False(embeddings.WasUsed);
+            Assert.Equal(0m, result.CostUsd);
+        }
+
         [Theory]
         [InlineData("fargo", "Fargo")]
         [InlineData("lebowski", "The Big Lebowski")]
