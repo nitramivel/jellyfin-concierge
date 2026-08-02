@@ -21,6 +21,38 @@
                     border: 1px solid rgba(127,127,127,0.28); border-radius: 10px;
                 }
                 .conciergeEmpty { margin-top: 1em; opacity: 0.75; }
+
+                /* One row per item, dense enough that the gaps are visible by
+                   scrolling rather than by searching. */
+                .conciergeLib { max-height: 30em; overflow-y: auto; border-radius: 0.3em; }
+                .conciergeLibRow {
+                    display: flex; gap: 0.6em; align-items: baseline; cursor: pointer;
+                    padding: 0.45em 0.6em; border-bottom: 1px solid rgba(127,127,127,0.14);
+                }
+                .conciergeLibRow:hover { background: rgba(127,127,127,0.10); }
+                .conciergeLibRow.is-open { background: rgba(0,164,220,0.12); }
+                .conciergeLibName { flex: 1 1 auto; }
+                .conciergeLibYear { opacity: 0.6; font-size: 0.88em; }
+                .conciergeLibChips { flex: 0 0 auto; display: flex; gap: 0.3em; }
+                .conciergeChip {
+                    font-size: 0.76em; padding: 0.1em 0.45em; border-radius: 0.9em;
+                    background: rgba(127,127,127,0.22); font-variant-numeric: tabular-nums;
+                }
+                .conciergeChip.is-warn { background: rgba(232,163,61,0.28); }
+                .conciergeChip.is-good { background: rgba(0,164,220,0.26); }
+                .conciergeDetail {
+                    margin-top: 0.9em; padding: 0.9em 1em; border-radius: 0.35em;
+                    border-left: 3px solid #00a4dc; background: rgba(127,127,127,0.10);
+                }
+                .conciergeDetail h4 { margin: 1em 0 0.3em; font-size: 0.95em; opacity: 0.8; }
+                .conciergeDetail h4:first-child { margin-top: 0; }
+                .conciergeDetail ul { margin: 0.2em 0 0 1.1em; padding: 0; }
+                .conciergeDetail li { margin: 0.15em 0; }
+                .conciergeRowText {
+                    font-size: 0.86em; opacity: 0.8; white-space: pre-wrap; word-break: break-word;
+                    margin: 0.2em 0 0.6em; padding-left: 0.7em;
+                    border-left: 2px solid rgba(127,127,127,0.35);
+                }
                 .conciergeTrack {
                     height: 8px; border-radius: 999px; overflow: hidden; margin-top: 0.7em;
                     background: rgba(127,127,127,0.25);
@@ -119,6 +151,7 @@
                     <div class="conciergeTabs" role="tablist">
                         <button type="button" class="conciergeTab" data-tab="search" role="tab">Search</button>
                         <button type="button" class="conciergeTab" data-tab="models" role="tab">Models</button>
+                        <button type="button" class="conciergeTab" data-tab="library" role="tab">Library</button>
                         <button type="button" class="conciergeTab" data-tab="index" role="tab">Index</button>
                         <button type="button" class="conciergeTab" data-tab="spending" role="tab">Spending</button>
                         <button type="button" class="conciergeTab" data-tab="usage" role="tab">Usage</button>
@@ -446,6 +479,38 @@
                         <span>Save</span>
                     </button>
                 </div>
+                <!-- Library -->
+                <div class="conciergeSection" data-concierge-tab="library">
+                    <h3>What Concierge knows</h3>
+                    <div class="conciergeSectionNote">
+                        Every indexed item and everything held for it. Retrieval is only ever as good as what
+                        is on this page: an item with no <strong>asks</strong> is findable by title and
+                        overview alone, which is exactly the search Concierge exists to beat.
+                    </div>
+
+                    <div id="ConciergeLibraryTotals" class="conciergeRunMeta"></div>
+
+                    <div style="margin-top:0.8em;display:flex;gap:0.5em;flex-wrap:wrap;align-items:center;">
+                        <input id="ConciergeLibraryFilter" type="search" class="emby-input"
+                               placeholder="Filter by title, genre or theme&hellip;" style="flex:1 1 16em;" />
+                        <select is="emby-select" id="ConciergeLibraryShow"
+                                class="emby-select-withcolor emby-select" style="flex:0 1 15em;">
+                            <option value="all">Everything</option>
+                            <option value="noasks">Nothing to search on</option>
+                            <option value="unknown">Unknown to the model</option>
+                            <option value="spoiler">Carries a spoiler</option>
+                            <option value="quotes">Has dialogue</option>
+                        </select>
+                        <button is="emby-button" type="button" id="ConciergeLibraryRefresh" class="raised">Refresh</button>
+                    </div>
+
+                    <div id="ConciergeLibraryList" style="margin-top:0.9em;">
+                        <div class="conciergeEmpty">Loading&hellip;</div>
+                    </div>
+
+                    <div id="ConciergeLibraryDetail"></div>
+                </div>
+
                 <!-- The index -->
                 <div class="conciergeSection" data-concierge-tab="index">
                     <h3>The index</h3>
@@ -1910,6 +1975,191 @@
                 });
             }
 
+
+            /* The library view.
+             *
+             * Fetched once and filtered in the browser. A few hundred items is small
+             * enough that a round trip per keystroke would be slower than the filter,
+             * and the point of the page is the shape of the whole library — which
+             * paging or server-side search would hide.
+             */
+            var libraryItems = [];
+            var libraryOpenId = null;
+
+            function libraryChips(item) {
+                var chips = [];
+
+                // Asks first, and warned when zero: an item with none is findable by
+                // title and overview alone.
+                chips.push('<span class="conciergeChip '
+                    + (item.Asks ? 'is-good' : 'is-warn') + '">' + item.Asks + ' asks</span>');
+
+                if (item.Themes) {
+                    chips.push('<span class="conciergeChip">' + item.Themes + ' themes</span>');
+                }
+
+                if (item.Cues) {
+                    chips.push('<span class="conciergeChip is-good">' + item.Cues + ' lines</span>');
+                }
+
+                if (item.Spoiler) {
+                    chips.push('<span class="conciergeChip is-warn">spoiler</span>');
+                }
+
+                if (!item.Enriched) {
+                    chips.push('<span class="conciergeChip is-warn">unknown</span>');
+                }
+
+                return chips.join('');
+            }
+
+            function libraryMatches(item, needle, show) {
+                if (show === 'noasks' && item.Asks) { return false; }
+                if (show === 'unknown' && item.Enriched) { return false; }
+                if (show === 'spoiler' && !item.Spoiler) { return false; }
+                if (show === 'quotes' && !item.Cues) { return false; }
+
+                if (!needle) { return true; }
+
+                var hay = (item.Title + ' ' + (item.Genres || []).join(' ') + ' ' + item.Kind)
+                    .toLowerCase();
+
+                return hay.indexOf(needle) !== -1;
+            }
+
+            function renderLibrary() {
+                var needle = page.querySelector('#ConciergeLibraryFilter').value.trim().toLowerCase();
+                var show = page.querySelector('#ConciergeLibraryShow').value;
+                var shown = libraryItems.filter(function (i) { return libraryMatches(i, needle, show); });
+                var target = page.querySelector('#ConciergeLibraryList');
+
+                if (!shown.length) {
+                    target.innerHTML = '<div class="conciergeEmpty">Nothing matches.</div>';
+                    return;
+                }
+
+                target.innerHTML = '<div class="conciergeLib">' + shown.map(function (i) {
+                    return '<div class="conciergeLibRow' + (i.ItemId === libraryOpenId ? ' is-open' : '')
+                        + '" data-item="' + escapeHtml(i.ItemId) + '">'
+                        + '<span class="conciergeLibName">' + escapeHtml(i.Title)
+                        + ' <span class="conciergeLibYear">' + escapeHtml(i.Year ? String(i.Year) : '')
+                        + '</span></span>'
+                        + '<span class="conciergeLibChips">' + libraryChips(i) + '</span>'
+                        + '</div>';
+                }).join('') + '</div>';
+
+                Array.prototype.forEach.call(target.querySelectorAll('.conciergeLibRow'), function (row) {
+                    row.addEventListener('click', function () {
+                        openLibraryItem(row.getAttribute('data-item'));
+                    });
+                });
+            }
+
+            function list(title, values) {
+                if (!values || !values.length) {
+                    return '<h4>' + escapeHtml(title) + '</h4><div class="conciergeEmpty">None.</div>';
+                }
+
+                return '<h4>' + escapeHtml(title) + '</h4><ul>'
+                    + values.map(function (v) { return '<li>' + escapeHtml(v) + '</li>'; }).join('')
+                    + '</ul>';
+            }
+
+            function openLibraryItem(itemId) {
+                libraryOpenId = itemId;
+                renderLibrary();
+
+                var target = page.querySelector('#ConciergeLibraryDetail');
+                target.innerHTML = '<div class="conciergeDetail">Loading&hellip;</div>';
+
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Library/' + itemId),
+                    dataType: 'json'
+                }).then(function (d) {
+                    var i = d.Item;
+                    var html = '<div class="conciergeDetail">'
+                        + '<h4>' + escapeHtml(i.Title) + (i.Year ? ' (' + escapeHtml(String(i.Year)) + ')' : '')
+                        + '</h4>'
+                        + '<div class="conciergeRunMeta">' + escapeHtml(i.Kind)
+                        + (i.Genres && i.Genres.length ? ' · ' + escapeHtml(i.Genres.join(', ')) : '')
+                        + (d.RuntimeMinutes ? ' · ' + escapeHtml(String(d.RuntimeMinutes)) + ' min' : '')
+                        + (d.OfficialRating ? ' · ' + escapeHtml(d.OfficialRating) : '')
+                        + '</div>';
+
+                    html += '<h4>Premise <span class="conciergeRunMeta">what the model says happens</span></h4>'
+                        + (d.Premise
+                            ? '<div>' + escapeHtml(d.Premise) + '</div>'
+                            : '<div class="conciergeEmpty">Nothing. This item was never enriched, or the '
+                              + 'model said it did not know it.</div>');
+
+                    html += list('Themes', d.ThemeList);
+                    html += list('Moments', d.MomentList);
+
+                    // The asks are the point. Everything else is context for them.
+                    html += list('Asks — what a vague search is matched against', d.AskList);
+
+                    html += '<h4>Embedded rows <span class="conciergeRunMeta">the exact text searched against</span></h4>';
+                    if (d.VectorRows && d.VectorRows.length) {
+                        d.VectorRows.forEach(function (r) {
+                            html += '<div><strong>' + escapeHtml(r.Kind) + '</strong>'
+                                + '<div class="conciergeRowText">' + escapeHtml(r.Text) + '</div></div>';
+                        });
+                    } else {
+                        html += '<div class="conciergeEmpty">No rows. This item cannot be found semantically.</div>';
+                    }
+
+                    if (d.QuoteSample && d.QuoteSample.length) {
+                        html += '<h4>Dialogue <span class="conciergeRunMeta">'
+                            + escapeHtml(String(i.Cues)) + ' lines, first few shown</span></h4>'
+                            + '<div class="conciergeRowText">'
+                            + escapeHtml(d.QuoteSample.join('\n')) + '</div>';
+                    }
+
+                    if (d.Overview) {
+                        html += '<h4>Library overview <span class="conciergeRunMeta">not written by Concierge</span></h4>'
+                            + '<div class="conciergeRowText">' + escapeHtml(d.Overview) + '</div>';
+                    }
+
+                    target.innerHTML = html + '</div>';
+                }, function () {
+                    target.innerHTML = '<div class="conciergeDetail conciergeBad">Could not read that item.</div>';
+                });
+            }
+
+            function loadLibrary() {
+                ApiClient.ajax({
+                    type: 'GET',
+                    url: ApiClient.getUrl('Concierge/Library'),
+                    dataType: 'json'
+                }).then(function (view) {
+                    libraryItems = view.Items || [];
+
+                    page.querySelector('#ConciergeLibraryTotals').innerHTML = libraryItems.length
+                        ? escapeHtml(String(view.Total)) + ' indexed · '
+                            + escapeHtml(String(view.Enriched)) + ' enriched · '
+                            + '<strong>' + escapeHtml(String(view.WithoutAsks)) + '</strong> with nothing to '
+                            + 'search on · ' + escapeHtml(String(view.WithQuotes)) + ' with dialogue · '
+                            + 'index generation ' + escapeHtml(String(view.Generation))
+                        : '';
+
+                    if (!libraryItems.length) {
+                        page.querySelector('#ConciergeLibraryList').innerHTML =
+                            '<div class="conciergeEmpty">No index yet. Build one from the Index tab.</div>';
+                        return;
+                    }
+
+                    renderLibrary();
+                }, function () {
+                    page.querySelector('#ConciergeLibraryList').innerHTML =
+                        '<div class="conciergeEmpty">Could not read the library.</div>';
+                });
+            }
+
+            page.querySelector('#ConciergeLibraryFilter').addEventListener('input', renderLibrary);
+            page.querySelector('#ConciergeLibraryShow').addEventListener('change', renderLibrary);
+            page.querySelector('#ConciergeLibraryRefresh').addEventListener('click', loadLibrary);
+
             page.querySelector('#ConciergeRefreshRuns').addEventListener('click', function () {
                 loadRuns();
                 pollCurrent();
@@ -1922,6 +2172,7 @@
                 loadQuoteCoverage();
                 loadUsage();
                 loadRuns();
+                loadLibrary();
                 pollCurrent();
                 startPolling();
             });

@@ -195,6 +195,16 @@ namespace Jellyfin.Plugin.Concierge.Core.Retrieval
         /// and normalizing it again is a no-op.
         /// </para>
         /// </remarks>
+        /// <summary>
+        /// Gets what each row is, without its vector.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="EnumerateRows"/> copies a float array per row, which is fifteen
+        /// megabytes of allocation on this library and pure waste for any caller that
+        /// only wants to know what was embedded rather than the numbers it became.
+        /// </remarks>
+        public IReadOnlyList<VectorRowSource> Sources => _rows;
+
         /// <returns>Each row source paired with its vector.</returns>
         public IEnumerable<(VectorRowSource Source, float[] Vector)> EnumerateRows()
         {

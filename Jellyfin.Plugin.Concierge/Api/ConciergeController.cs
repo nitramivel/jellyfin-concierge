@@ -343,6 +343,180 @@ namespace Jellyfin.Plugin.Concierge.Api
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <response code="200">The coverage report.</response>
         /// <returns>The report.</returns>
+        /// <summary>
+        /// Everything the index holds, one row per item.
+        /// </summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <response code="200">The library as Concierge sees it.</response>
+        /// <returns>The library.</returns>
+        /// <remarks>
+        /// The whole library in one response. It is a few hundred items and a summary
+        /// row each, so paging it would add a second request and a page-number bug in
+        /// exchange for nothing — and the point of the view is the shape of the whole
+        /// thing, which paging hides.
+        /// </remarks>
+        [HttpGet("Library")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<LibraryView>> Library(CancellationToken cancellationToken)
+        {
+            var index = await LoadIndexAsync(cancellationToken).ConfigureAwait(false);
+
+            if (index is null)
+            {
+                return Ok(new LibraryView([], 0, 0, 0, 0, 0));
+            }
+
+            var rows = CountRowsByItem(index);
+            var cues = await CountCuesByItemAsync(cancellationToken).ConfigureAwait(false);
+
+            var items = index.Documents
+                .Select(d => Summarize(d, rows, cues))
+                .OrderBy(i => i.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return Ok(new LibraryView(
+                items,
+                items.Count,
+                items.Count(i => i.Enriched),
+
+                // The number worth watching. An item with no asks is findable by title
+                // and overview only, which is exactly the search Concierge exists to
+                // beat.
+                items.Count(i => i.Asks == 0),
+                items.Count(i => i.Cues > 0),
+                index.State.Generation));
+        }
+
+        /// <summary>
+        /// Everything Concierge holds for one item, including the text it embedded.
+        /// </summary>
+        /// <param name="itemId">The item.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <response code="200">The item.</response>
+        /// <response code="404">No such item in the index.</response>
+        /// <returns>The item.</returns>
+        [HttpGet("Library/{itemId}")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<LibraryItemDetail>> LibraryItem(
+            [FromRoute] Guid itemId,
+            CancellationToken cancellationToken)
+        {
+            var index = await LoadIndexAsync(cancellationToken).ConfigureAwait(false);
+            var document = index?.Documents.FirstOrDefault(d => d.ItemId == itemId);
+
+            if (index is null || document is null)
+            {
+                return NotFound();
+            }
+
+            var rows = CountRowsByItem(index);
+            var track = await _quotes.LoadAsync(itemId, cancellationToken).ConfigureAwait(false);
+            var cues = new Dictionary<Guid, int>();
+
+            if (track is not null)
+            {
+                cues[itemId] = track.Cues.Count;
+            }
+
+            var enrichment = document.Enrichment;
+
+            return Ok(new LibraryItemDetail(
+                Summarize(document, rows, cues),
+                document.OriginalTitle,
+                document.Tags,
+                document.Studios,
+                document.People,
+                document.OfficialRating,
+                document.RuntimeMinutes,
+                document.Overview,
+                enrichment?.Premise ?? string.Empty,
+                enrichment?.Moments ?? [],
+                enrichment?.Themes ?? [],
+                enrichment?.Asks ?? [],
+
+                // The text that was actually embedded, verbatim. Retrieval is only ever
+                // as good as this, and until now the only way to see it was to read
+                // rows.json off the server.
+                index.Vectors.Sources
+                    .Where(s => s.ItemId == itemId)
+                    .Select(s => new LibraryVectorRow(s.Kind.ToString(), s.Text))
+                    .ToList(),
+                track is null ? [] : track.Cues.Take(12).Select(c => c.Text).ToList(),
+                track?.SourcePath ?? string.Empty,
+                track?.ExtractedUtc));
+        }
+
+        private static LibraryItemSummary Summarize(
+            Core.Documents.ItemDocument document,
+            IReadOnlyDictionary<Guid, int> rows,
+            IReadOnlyDictionary<Guid, int> cues)
+        {
+            var e = document.Enrichment;
+
+            return new LibraryItemSummary(
+                document.ItemId,
+                document.Title,
+                document.Year,
+                document.Kind,
+                document.Genres,
+                e is { IsEmpty: false },
+                e?.Premise.Length ?? 0,
+                e?.Moments.Count ?? 0,
+                e?.Themes.Count ?? 0,
+                e?.Asks.Count ?? 0,
+                e?.Spoiler ?? false,
+                rows.GetValueOrDefault(document.ItemId),
+                cues.GetValueOrDefault(document.ItemId));
+        }
+
+        private static Dictionary<Guid, int> CountRowsByItem(
+            Services.Indexing.ConciergeIndex index)
+        {
+            var rows = new Dictionary<Guid, int>();
+
+            foreach (var source in index.Vectors.Sources)
+            {
+                rows[source.ItemId] = rows.GetValueOrDefault(source.ItemId) + 1;
+            }
+
+            return rows;
+        }
+
+        private async Task<Dictionary<Guid, int>> CountCuesByItemAsync(
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var tracks = await _quotes.LoadAllAsync(cancellationToken).ConfigureAwait(false);
+                return tracks.ToDictionary(t => t.ItemId, t => t.Cues.Count);
+            }
+            catch (Exception ex)
+            {
+                // Dialogue is optional and this view is not. A quote store that cannot
+                // be read costs a column, not the page.
+                _logger.LogWarning(ex, "Concierge: could not read extracted dialogue for the library view");
+                return [];
+            }
+        }
+
+        private async Task<Services.Indexing.ConciergeIndex?> LoadIndexAsync(
+            CancellationToken cancellationToken)
+        {
+            var config = Plugin.Instance?.Configuration;
+
+            if (config is null)
+            {
+                return null;
+            }
+
+            var profile = Core.Llm.EmbeddingProfiles.Resolve(config, config.EmbeddingProfileId);
+
+            return await _store.LoadAsync(profile, cancellationToken).ConfigureAwait(false);
+        }
+
         [HttpGet("Quotes/Coverage")]
         [Authorize(Policy = Policies.RequiresElevation)]
         [ProducesResponseType(StatusCodes.Status200OK)]
