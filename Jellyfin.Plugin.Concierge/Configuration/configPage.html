@@ -35,6 +35,43 @@
                 }
                 .conciergeRunMeta { font-size: 0.87em; opacity: 0.72; margin-top: 0.15em; }
                 .conciergeBad { color: #e8a33d; }
+
+                /* One long scroll is how "which model runs which pass" ended up
+                   below two profile editors, where nobody found it. */
+                .conciergeTabs {
+                    display: flex; flex-wrap: wrap; gap: 0.3em;
+                    margin: 1.4em 0 0.4em; border-bottom: 1px solid rgba(127,127,127,0.3);
+                }
+                .conciergeTab {
+                    background: none; border: 0; border-bottom: 2px solid transparent;
+                    color: inherit; font: inherit; font-size: 1.02em;
+                    padding: 0.5em 0.9em; cursor: pointer; opacity: 0.6;
+                    transition: opacity 0.15s, border-color 0.15s;
+                }
+                .conciergeTab:hover { opacity: 0.9; }
+                .conciergeTab.is-active { opacity: 1; border-bottom-color: currentColor; }
+                .conciergeSection[hidden] { display: none; }
+
+                /* The pass table: one row per task, so the question "what runs
+                   this?" is answered by reading across rather than by remembering
+                   which select was which. */
+                .conciergePasses { width: 100%; border-collapse: collapse; margin-top: 0.6em; }
+                .conciergePasses th {
+                    text-align: left; font-weight: 600; opacity: 0.72; font-size: 0.9em;
+                    padding: 0.4em 0.6em 0.4em 0; border-bottom: 1px solid rgba(127,127,127,0.3);
+                }
+                .conciergePasses td {
+                    padding: 0.7em 0.6em 0.7em 0; vertical-align: top;
+                    border-bottom: 1px solid rgba(127,127,127,0.14);
+                }
+                .conciergePasses td:first-child { white-space: nowrap; font-weight: 600; }
+                .conciergePasses select { width: 100%; max-width: 22em; }
+                .conciergePassWhen { font-size: 0.86em; opacity: 0.68; margin-top: 0.2em; }
+                @media (max-width: 60em) {
+                    .conciergePasses, .conciergePasses tbody, .conciergePasses tr, .conciergePasses td { display: block; width: 100%; }
+                    .conciergePasses thead { display: none; }
+                    .conciergePasses td:first-child { padding-bottom: 0.1em; }
+                }
             </style>
 
             <form id="ConciergeConfigForm">
@@ -42,9 +79,9 @@
                 <div class="conciergeSection">
                     <h2 style="margin-bottom:0.2em;">Concierge</h2>
                     <div class="conciergeSectionNote">
-                        Natural-language search over your library. There is no search box in the Jellyfin client yet
-                        &mdash; that arrives in phase 2. Until then, set a model profile below, run the index task,
-                        and try queries here.
+                        Natural-language search over your library, in the Jellyfin search box and here.
+                        Describe a film the way you would to a friend and Concierge finds it; quote a line and
+                        it finds the scene.
                     </div>
 
                     <div id="ConciergeStatusPanel" class="conciergeEditor">
@@ -53,10 +90,18 @@
                             <button is="emby-button" type="button" id="ConciergeRefreshStatus" class="raised">Refresh</button>
                         </div>
                     </div>
+
+                    <div class="conciergeTabs" role="tablist">
+                        <button type="button" class="conciergeTab" data-tab="search" role="tab">Search</button>
+                        <button type="button" class="conciergeTab" data-tab="models" role="tab">Models</button>
+                        <button type="button" class="conciergeTab" data-tab="index" role="tab">Index</button>
+                        <button type="button" class="conciergeTab" data-tab="spending" role="tab">Spending</button>
+                        <button type="button" class="conciergeTab" data-tab="usage" role="tab">Usage</button>
+                    </div>
                 </div>
 
                 <!-- Try a search -->
-                <div class="conciergeSection">
+                <div class="conciergeSection" data-concierge-tab="search">
                     <h3>Try a search</h3>
                     <div class="conciergeSectionNote">
                         Runs the real pipeline against the real index. Queries that look like a title are answered by
@@ -75,52 +120,86 @@
                     <div id="ConciergeTryResults" style="margin-top:1em;"></div>
                 </div>
 
-                <!-- Usage -->
-                <div class="conciergeSection">
-                    <h3>Usage and cost</h3>
+                <!-- Pass assignment -->
+                <div class="conciergeSection" data-concierge-tab="models">
+                    <h3>Which model runs which pass</h3>
                     <div class="conciergeSectionNote">
-                        Every search is logged with what it cost, appended to one file per month and kept for two
-                        years. Totals are summed call by call, never estimated from token counts.
+                        Concierge is four jobs, not one, and they want different models. The two per-query
+                        passes run forever and should be as cheap as quality allows. Enrichment runs
+                        <em>once</em> per item and sets the ceiling on what a half-remembered sentence can
+                        ever match &mdash; it should be the best model you can afford. Leave a row on
+                        &ldquo;use the default profile&rdquo; to follow the default.
                     </div>
 
-                    <div class="conciergeProfileBar">
-                        <div class="selectContainer">
-                            <label class="selectLabel" for="ConciergeUsageMonths">Period</label>
-                            <select is="emby-select" id="ConciergeUsageMonths" class="emby-select-withcolor emby-select">
-                                <option value="1">This month</option>
-                                <option value="3" selected>Last 3 months</option>
-                                <option value="12">Last 12 months</option>
-                                <option value="24">Everything kept</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div id="ConciergeUsage" style="margin-top:1em;">Loading&hellip;</div>
-                </div>
-
-                <!-- Index builds -->
-                <div class="conciergeSection">
-                    <h3>Index builds</h3>
-                    <div class="conciergeSectionNote">
-                        What each build did and what it cost. Enrichment saves every few batches, so stopping a build
-                        keeps everything already paid for and the next one resumes rather than starting over.
-                    </div>
-
-                    <div id="ConciergeRunning" class="conciergeEditor hide">
-                        <div id="ConciergeRunningPhase"><strong>Building&hellip;</strong></div>
-                        <div class="conciergeTrack"><div id="ConciergeRunningFill" class="conciergeFill"></div></div>
-                        <div id="ConciergeRunningDetail" class="conciergeSectionNote" style="margin:0.6em 0 0 0;"></div>
-                    </div>
-
-                    <div style="margin-top:0.8em;">
-                        <button is="emby-button" type="button" id="ConciergeRefreshRuns" class="raised">Refresh</button>
-                    </div>
-
-                    <div id="ConciergeRuns" style="margin-top:1em;"></div>
+                    <table class="conciergePasses">
+                        <thead>
+                            <tr><th>Pass</th><th>What it does</th><th>Model</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><label for="DefaultModelProfileId">Default</label></td>
+                                <td>
+                                    Whatever a pass below does not override.
+                                    <div class="conciergePassWhen">The model Concierge uses unless told otherwise.</div>
+                                </td>
+                                <td><select is="emby-select" id="DefaultModelProfileId" class="emby-select-withcolor emby-select"></select></td>
+                            </tr>
+                            <tr>
+                                <td><label for="PlanModelProfileId">Plan</label></td>
+                                <td>
+                                    Reads the sentence for constraints &mdash; a decade, a genre, a runtime.
+                                    <div class="conciergePassWhen">Only on queries that look like they carry one. Cheap and short.</div>
+                                </td>
+                                <td><select is="emby-select" id="PlanModelProfileId" class="emby-select-withcolor emby-select"></select></td>
+                            </tr>
+                            <tr>
+                                <td><label for="RerankModelProfileId">Re-rank</label></td>
+                                <td>
+                                    Puts the shortlist in order and says why each one matched.
+                                    <div class="conciergePassWhen">
+                                        Every paid search, and <strong>almost the whole wait</strong> &mdash; measured at
+                                        99% of the time a search takes. Judge a model here on speed as much as taste.
+                                    </div>
+                                </td>
+                                <td><select is="emby-select" id="RerankModelProfileId" class="emby-select-withcolor emby-select"></select></td>
+                            </tr>
+                            <tr>
+                                <td><label for="EnrichmentModelProfileId">Enrichment</label></td>
+                                <td>
+                                    Writes what each item is about, so a description can match it at all.
+                                    <div class="conciergePassWhen">
+                                        Index build only &mdash; once per item, ever. Nobody is waiting on it, and it
+                                        decides the ceiling for every search afterwards. Spend here.
+                                    </div>
+                                </td>
+                                <td><select is="emby-select" id="EnrichmentModelProfileId" class="emby-select-withcolor emby-select"></select></td>
+                            </tr>
+                            <tr>
+                                <td><label for="EmbeddingProfileId">Embeddings</label></td>
+                                <td>
+                                    Turns items and queries into vectors, which is how a search finds something
+                                    that shares no words with it.
+                                    <div class="conciergePassWhen">
+                                        Every search and every index build. <strong>Changing this invalidates the
+                                        index</strong> &mdash; different model, different vector space &mdash; so a
+                                        rebuild follows.
+                                    </div>
+                                </td>
+                                <td><select is="emby-select" id="EmbeddingProfileId" class="emby-select-withcolor emby-select"></select></td>
+                            </tr>
+                            <tr>
+                                <td><label for="DefaultEmbeddingProfileId">Default embedding</label></td>
+                                <td>
+                                    The embedding profile used when the row above is left on the default.
+                                </td>
+                                <td><select is="emby-select" id="DefaultEmbeddingProfileId" class="emby-select-withcolor emby-select"></select></td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
 
                 <!-- Chat model profiles -->
-                <div class="conciergeSection">
+                <div class="conciergeSection" data-concierge-tab="models">
                     <h3>Chat models</h3>
                     <div class="conciergeSectionNote">
                         A profile is one saved way of calling a model: the provider, the model, the key, and
@@ -220,7 +299,7 @@
                 </div>
 
                 <!-- Embedding profiles -->
-                <div class="conciergeSection">
+                <div class="conciergeSection" data-concierge-tab="models">
                     <h3>Embedding models</h3>
                     <div class="conciergeSectionNote">
                         A separate list, because an embedding model has no output price, no cache and cannot think.
@@ -305,52 +384,35 @@
                     </div>
                 </div>
 
-                <!-- Pass assignment -->
-                <div class="conciergeSection">
-                    <h3>Which model runs which pass</h3>
-                    <div class="conciergeSectionNote">
-                        The two per-query passes run forever and should be as cheap as quality allows. Enrichment runs
-                        <em>once</em> per item and sets the ceiling on what a half-remembered sentence can ever match
-                        &mdash; it should be the best model you can afford. Leave a pass on
-                        &ldquo;use the default profile&rdquo; to follow the default.
+                <!-- Call shape -->
+                <div class="conciergeSection" data-concierge-tab="models">
+                    <h3>Call shape</h3>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnableThinking" />
+                            <span>Let models think by default</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            The starting point for any profile set to &ldquo;follow the global setting&rdquo;. Off by
+                            default: thinking counts against the same output cap as the answer, and a search box has
+                            about two and a half seconds before it feels broken.
+                        </div>
                     </div>
 
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="DefaultModelProfileId">Default profile</label>
-                        <select is="emby-select" id="DefaultModelProfileId" class="emby-select-withcolor emby-select"></select>
-                    </div>
-
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="PlanModelProfileId">Plan &mdash; reads the sentence</label>
-                        <select is="emby-select" id="PlanModelProfileId" class="emby-select-withcolor emby-select"></select>
-                        <div class="fieldDescription">Per search. Small and fast; this one sits in the latency budget.</div>
-                    </div>
-
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="RerankModelProfileId">Re-rank &mdash; orders and explains</label>
-                        <select is="emby-select" id="RerankModelProfileId" class="emby-select-withcolor emby-select"></select>
-                        <div class="fieldDescription">Per search. Mid-tier; this is where quality shows.</div>
-                    </div>
-
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="EnrichmentModelProfileId">Enrichment &mdash; index time</label>
-                        <select is="emby-select" id="EnrichmentModelProfileId" class="emby-select-withcolor emby-select"></select>
-                        <div class="fieldDescription">Once per item, in the background. The best model affordable.</div>
-                    </div>
-
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="DefaultEmbeddingProfileId">Default embedding profile</label>
-                        <select is="emby-select" id="DefaultEmbeddingProfileId" class="emby-select-withcolor emby-select"></select>
-                    </div>
-
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="EmbeddingProfileId">Embeddings &mdash; documents and queries</label>
-                        <select is="emby-select" id="EmbeddingProfileId" class="emby-select-withcolor emby-select"></select>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxOutputTokens">Maximum output tokens per call</label>
+                        <input id="MaxOutputTokens" type="number" step="500" min="500" class="emby-input" />
                     </div>
                 </div>
 
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>Save</span>
+                    </button>
+                </div>
                 <!-- The index -->
-                <div class="conciergeSection">
+                <div class="conciergeSection" data-concierge-tab="index">
                     <h3>The index</h3>
                     <div class="conciergeSectionNote">
                         Built by the <em>Build the Concierge search index</em> scheduled task. Items that have not
@@ -412,8 +474,65 @@
                     </div>
                 </div>
 
+                <!-- Quote search -->
+                <div class="conciergeSection" data-concierge-tab="index">
+                    <h3>Quote search</h3>
+                    <div class="conciergeSectionNote">
+                        Search for a line somebody says and get the film <em>and the minute</em>. Reads the subtitles
+                        already inside your files &mdash; <strong>no model, no embeddings, no money</strong>, only CPU
+                        the first time it reads each file. It is also the only part of Concierge that works on films
+                        no model has heard of, because the words come from the file rather than a model's memory.
+                        Run it from <em>Scheduled Tasks &rarr; Read dialogue for Concierge quote search</em>.
+                    </div>
+
+                    <div id="ConciergeQuoteCoverage" class="conciergeEditor">Checking&hellip;</div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:1em;">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnableQuoteSearch" />
+                            <span>Index dialogue</span>
+                        </label>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="QuoteIncludeEpisodes" />
+                            <span>Include episodes</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Off by default, and the reason is size rather than taste. Films are roughly 73,000
+                            searchable windows and finish in minutes; the whole library is 850,000 and is an
+                            overnight job. Turning this on is also the point at which a proper full-text database
+                            would beat the index built in here &mdash; ask before relying on it at that scale.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="EnableLyricSearch" />
+                            <span>Index song lyrics too</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Jellyfin already holds lyrics as time-stamped lines, so this needs no extraction and no
+                            ffmpeg &mdash; it is a read. Lyrics land in the same index as dialogue, because a
+                            remembered line is a remembered line and you should not have to know whether it was
+                            spoken or sung. A matched lyric deep-links to the second it is sung.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="SubtitleLanguage">Subtitle language</label>
+                        <input id="SubtitleLanguage" type="text" class="emby-input" placeholder="en" />
+                        <div class="fieldDescription">
+                            Forced tracks are never used &mdash; they carry only a few dozen foreign-language lines,
+                            so indexing one looks like success and produces a film nobody can find by anything said
+                            in it.
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Language passes and spending -->
-                <div class="conciergeSection">
+                <div class="conciergeSection" data-concierge-tab="spending">
                     <h3>Language and spending</h3>
                     <div class="conciergeSectionNote">
                         Two passes cost money per search. Everything here degrades rather than breaking: at 85% of
@@ -522,90 +641,50 @@
                     </div>
                 </div>
 
-                <!-- Quote search -->
-                <div class="conciergeSection">
-                    <h3>Quote search</h3>
+                <!-- Usage -->
+                <div class="conciergeSection" data-concierge-tab="usage">
+                    <h3>Usage and cost</h3>
                     <div class="conciergeSectionNote">
-                        Search for a line somebody says and get the film <em>and the minute</em>. Reads the subtitles
-                        already inside your files &mdash; <strong>no model, no embeddings, no money</strong>, only CPU
-                        the first time it reads each file. It is also the only part of Concierge that works on films
-                        no model has heard of, because the words come from the file rather than a model's memory.
-                        Run it from <em>Scheduled Tasks &rarr; Read dialogue for Concierge quote search</em>.
+                        Every search is logged with what it cost, appended to one file per month and kept for two
+                        years. Totals are summed call by call, never estimated from token counts.
                     </div>
 
-                    <div id="ConciergeQuoteCoverage" class="conciergeEditor">Checking&hellip;</div>
-
-                    <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:1em;">
-                        <label class="emby-checkbox-label">
-                            <input is="emby-checkbox" type="checkbox" id="EnableQuoteSearch" />
-                            <span>Index dialogue</span>
-                        </label>
-                    </div>
-
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input is="emby-checkbox" type="checkbox" id="QuoteIncludeEpisodes" />
-                            <span>Include episodes</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">
-                            Off by default, and the reason is size rather than taste. Films are roughly 73,000
-                            searchable windows and finish in minutes; the whole library is 850,000 and is an
-                            overnight job. Turning this on is also the point at which a proper full-text database
-                            would beat the index built in here &mdash; ask before relying on it at that scale.
+                    <div class="conciergeProfileBar">
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="ConciergeUsageMonths">Period</label>
+                            <select is="emby-select" id="ConciergeUsageMonths" class="emby-select-withcolor emby-select">
+                                <option value="1">This month</option>
+                                <option value="3" selected>Last 3 months</option>
+                                <option value="12">Last 12 months</option>
+                                <option value="24">Everything kept</option>
+                            </select>
                         </div>
                     </div>
 
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input is="emby-checkbox" type="checkbox" id="EnableLyricSearch" />
-                            <span>Index song lyrics too</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">
-                            Jellyfin already holds lyrics as time-stamped lines, so this needs no extraction and no
-                            ffmpeg &mdash; it is a read. Lyrics land in the same index as dialogue, because a
-                            remembered line is a remembered line and you should not have to know whether it was
-                            spoken or sung. A matched lyric deep-links to the second it is sung.
-                        </div>
-                    </div>
-
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="SubtitleLanguage">Subtitle language</label>
-                        <input id="SubtitleLanguage" type="text" class="emby-input" placeholder="en" />
-                        <div class="fieldDescription">
-                            Forced tracks are never used &mdash; they carry only a few dozen foreign-language lines,
-                            so indexing one looks like success and produces a film nobody can find by anything said
-                            in it.
-                        </div>
-                    </div>
+                    <div id="ConciergeUsage" style="margin-top:1em;">Loading&hellip;</div>
                 </div>
 
-                <!-- Call shape -->
-                <div class="conciergeSection">
-                    <h3>Call shape</h3>
-
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input is="emby-checkbox" type="checkbox" id="EnableThinking" />
-                            <span>Let models think by default</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">
-                            The starting point for any profile set to &ldquo;follow the global setting&rdquo;. Off by
-                            default: thinking counts against the same output cap as the answer, and a search box has
-                            about two and a half seconds before it feels broken.
-                        </div>
+                <!-- Index builds -->
+                <div class="conciergeSection" data-concierge-tab="usage">
+                    <h3>Index builds</h3>
+                    <div class="conciergeSectionNote">
+                        What each build did and what it cost. Enrichment saves every few batches, so stopping a build
+                        keeps everything already paid for and the next one resumes rather than starting over.
                     </div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="MaxOutputTokens">Maximum output tokens per call</label>
-                        <input id="MaxOutputTokens" type="number" step="500" min="500" class="emby-input" />
+                    <div id="ConciergeRunning" class="conciergeEditor hide">
+                        <div id="ConciergeRunningPhase"><strong>Building&hellip;</strong></div>
+                        <div class="conciergeTrack"><div id="ConciergeRunningFill" class="conciergeFill"></div></div>
+                        <div id="ConciergeRunningDetail" class="conciergeSectionNote" style="margin:0.6em 0 0 0;"></div>
                     </div>
+
+                    <div style="margin-top:0.8em;">
+                        <button is="emby-button" type="button" id="ConciergeRefreshRuns" class="raised">Refresh</button>
+                    </div>
+
+                    <div id="ConciergeRuns" style="margin-top:1em;"></div>
                 </div>
 
-                <div>
-                    <button is="emby-button" type="submit" class="raised button-submit block">
-                        <span>Save</span>
-                    </button>
-                </div>
             </form>
         </div>
     </div>
@@ -1567,6 +1646,52 @@
                     target.innerHTML = 'Could not read the usage breakdown.';
                 });
             }
+
+            /* Tabs.
+             *
+             * The page was one scroll of eleven headings, and "which model runs which
+             * pass" sat seventh — below two profile editors, roughly two hundred lines
+             * down. The setting existed the whole time and could not be found, which
+             * is the same failure as the profile that would not stick: the capability
+             * was there and the layout hid it.
+             *
+             * The choice is remembered, so returning to the page returns to the tab
+             * you were working in rather than to the top of a scroll. */
+            function showTab(page, name) {
+                var sections = page.querySelectorAll('[data-concierge-tab]');
+                for (var i = 0; i < sections.length; i++) {
+                    sections[i].hidden = sections[i].getAttribute('data-concierge-tab') !== name;
+                }
+
+                var tabs = page.querySelectorAll('.conciergeTab');
+                for (var j = 0; j < tabs.length; j++) {
+                    var active = tabs[j].getAttribute('data-tab') === name;
+                    tabs[j].classList.toggle('is-active', active);
+                    tabs[j].setAttribute('aria-selected', active ? 'true' : 'false');
+                }
+
+                try {
+                    window.localStorage.setItem('concierge-config-tab', name);
+                } catch (e) { /* storage off; the tab simply does not persist */ }
+            }
+
+            function rememberedTab(page) {
+                var name = '';
+                try {
+                    name = window.localStorage.getItem('concierge-config-tab') || '';
+                } catch (e) { /* see above */ }
+
+                return page.querySelector('[data-concierge-tab="' + name + '"]') ? name : 'search';
+            }
+
+            var conciergeTabs = page.querySelectorAll('.conciergeTab');
+            for (var t = 0; t < conciergeTabs.length; t++) {
+                conciergeTabs[t].addEventListener('click', function () {
+                    showTab(page, this.getAttribute('data-tab'));
+                });
+            }
+
+            showTab(page, rememberedTab(page));
 
             page.querySelector('#ConciergeUsageMonths').addEventListener('change', loadUsage);
 
