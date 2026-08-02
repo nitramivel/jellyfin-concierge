@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.24.0.0",
-        "changelog": "The Concierge toggle is now an icon in the search box, in the corner Jellyfin Enhanced's Jellyseerr icon used, and that icon is hidden by a setting you can untick. Fixes the search bar doing nothing since 0.18.0.0 \u2014 a stray brace was a syntax error that killed the client script on load. Re-index a single item on any model with thinking on or off for that call only, and forget its dialogue when a subtitle track was extracted in the wrong language. Thinking is set per pass. Warns when enrichment has been paid for but not embedded. Folds in 0.19.0.0 through 0.23.0.0.",
+        "version": "0.25.0.0",
+        "changelog": "Pick which subtitle track a film's dialogue is read from, or None to remove it \u2014 for the film captioned in the wrong language, where the automatic choice is exactly what is wrong. The Concierge toggle is an icon in the search box where the Jellyseerr one was, and that icon is hidden by a setting you can untick. Fixes the search bar doing nothing since 0.18.0.0. Re-index one item on any model with thinking on or off for that call only. Thinking is set per pass. Warns when enrichment has been paid for but not embedded. Folds in 0.19.0.0 through 0.24.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.24.0.0/concierge_0.24.0.0.zip",
-        "checksum": "db0b548bc88138f76eae751d893dc5e0",
-        "timestamp": "2026-08-02T22:51:29Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.25.0.0/concierge_0.25.0.0.zip",
+        "checksum": "e1e1aaa9e0104e9dddfefe26912ddf41",
+        "timestamp": "2026-08-02T22:58:19Z"
       },
       {
         "version": "0.18.0.0",

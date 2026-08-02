@@ -79,6 +79,28 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
         string Reason,
         int CueCount);
 
+    /// <summary>One subtitle track that could be extracted.</summary>
+    /// <param name="Index">The stream index, which is what extraction is given.</param>
+    /// <param name="Language">Its language code, when it declares one.</param>
+    /// <param name="DisplayTitle">How Jellyfin names it.</param>
+    /// <param name="Codec">srt, ass, pgssub and so on.</param>
+    /// <param name="IsForced">Forced tracks caption only foreign speech, so they are near-empty.</param>
+    /// <param name="IsDefault">Whether the file marks it as the default.</param>
+    /// <param name="IsExternal">Whether it is a sidecar file rather than embedded.</param>
+    /// <param name="IsImage">
+    /// Whether it holds pictures of words. Extraction cannot read those, and a list
+    /// that does not say so invites picking one and wondering why nothing came out.
+    /// </param>
+    public sealed record SubtitleTrackOption(
+        int Index,
+        string Language,
+        string DisplayTitle,
+        string Codec,
+        bool IsForced,
+        bool IsDefault,
+        bool IsExternal,
+        bool IsImage);
+
     /// <summary>Reads and writes extracted dialogue.</summary>
     public interface IQuoteStore
     {

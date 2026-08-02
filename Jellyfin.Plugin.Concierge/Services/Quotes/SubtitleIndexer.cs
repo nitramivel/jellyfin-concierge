@@ -327,10 +327,76 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
             return (extracted, skipped, unavailable, cues);
         }
 
+        /// <summary>
+        /// Lists an item's subtitle tracks, and says which one is stored.
+        /// </summary>
+        /// <param name="item">The item.</param>
+        /// <returns>Its tracks, best-first by the same rules extraction would use.</returns>
+        public IReadOnlyList<SubtitleTrackOption> Tracks(BaseItem item)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+
+            IReadOnlyList<MediaBrowser.Model.Entities.MediaStream> streams;
+            try
+            {
+                streams = _mediaSources.GetMediaStreams(item.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Concierge: could not read streams for {Item}", item.Name);
+                return [];
+            }
+
+            return streams
+                .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle)
+                .Select(s => new SubtitleTrackOption(
+                    s.Index,
+                    s.Language ?? string.Empty,
+                    s.DisplayTitle ?? s.Title ?? string.Empty,
+                    s.Codec ?? string.Empty,
+                    s.IsForced,
+                    s.IsDefault,
+                    s.IsExternal,
+
+                    // Image subtitles hold pictures of words. Extraction cannot read
+                    // them and the list should say so rather than let somebody pick
+                    // one and wonder why nothing came out.
+                    !s.IsTextSubtitleStream))
+                .ToList();
+        }
+
+        /// <summary>
+        /// Extracts one item's dialogue from a nominated track, now.
+        /// </summary>
+        /// <param name="item">The item.</param>
+        /// <param name="streamIndex">The track to read.</param>
+        /// <param name="config">The configuration.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>What happened, and how many lines came out.</returns>
+        /// <remarks>
+        /// Bypasses the freshness check on purpose. That check exists so a rebuild is
+        /// free, and it is precisely what stops a wrong-language track being redone —
+        /// the media file has not changed and never will.
+        /// </remarks>
+        public async Task<QuoteCoverage> ExtractAsync(
+            BaseItem item,
+            int streamIndex,
+            PluginConfiguration config,
+            CancellationToken cancellationToken)
+        {
+            var (_, coverage) = await ProcessAsync(item, config, cancellationToken, streamIndex)
+                .ConfigureAwait(false);
+
+            _provider.Invalidate();
+
+            return coverage;
+        }
+
         private async Task<(Status Status, QuoteCoverage Coverage)> ProcessAsync(
             BaseItem item,
             PluginConfiguration config,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            int? forcedStreamIndex = null)
         {
             QuoteCoverage Cover(bool indexed, string reason, int count = 0)
                 => new(item.Id, item.Name ?? string.Empty, item.ProductionYear, indexed, reason, count);
@@ -346,7 +412,16 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
                 return (Status.Failed, Cover(false, "could not read media streams"));
             }
 
-            var choice = TrackSelector.Choose(streams, config.SubtitleLanguage);
+            // A forced index is somebody looking at the list and picking. The
+            // selector's rules — preferred language, not forced, text over image —
+            // are good defaults and exactly the thing being overruled, so they do not
+            // get a second say.
+            var choice = forcedStreamIndex is { } forced
+                ? new TrackChoice(
+                    streams.FirstOrDefault(s => s.Index == forced),
+                    "chosen by hand")
+                : TrackSelector.Choose(streams, config.SubtitleLanguage);
+
             if (!choice.Found)
             {
                 return (Status.Unavailable, Cover(false, choice.Reason));
@@ -373,7 +448,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Quotes
             }
 
             var existing = await _store.LoadAsync(item.Id, cancellationToken).ConfigureAwait(false);
-            if (existing is not null && existing.IsFresh(stream.Index, item.Path, size, modified))
+            if (forcedStreamIndex is null
+                && existing is not null
+                && existing.IsFresh(stream.Index, item.Path, size, modified))
             {
                 return (Status.Skipped, Cover(true, choice.Reason, existing.Cues.Count));
             }

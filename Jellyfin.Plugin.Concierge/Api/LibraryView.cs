@@ -163,16 +163,20 @@ namespace Jellyfin.Plugin.Concierge.Api
     /// nobody is waiting on, which is a very different trade from a whole build.
     /// </param>
     /// <param name="Enrichment">Whether to ask the model again.</param>
-    /// <param name="Quotes">
-    /// Whether to forget the extracted dialogue so the next extraction looks again.
-    /// This is the one for a wrong-language subtitle: the media file has not changed,
-    /// so nothing else will make the extractor reconsider it.
+    /// <param name="SubtitleStreamIndex">
+    /// Which subtitle track to read the dialogue from, or null to leave the stored
+    /// dialogue alone. <c>-1</c> means forget it and extract nothing.
+    /// <para>
+    /// Chosen by hand because the automatic rules — preferred language, skip forced,
+    /// prefer text — are good defaults and are exactly what is being overruled when a
+    /// film ends up captioned in the wrong language.
+    /// </para>
     /// </param>
     public sealed record ReindexRequest(
         string? ModelProfileId = null,
         Configuration.ThinkingMode Thinking = Configuration.ThinkingMode.Inherit,
         bool Enrichment = true,
-        bool Quotes = false);
+        int? SubtitleStreamIndex = null);
 
     /// <summary>What redoing one item did.</summary>
     /// <param name="Title">The item.</param>
@@ -185,6 +189,7 @@ namespace Jellyfin.Plugin.Concierge.Api
     /// <param name="Themes">How many themes came back.</param>
     /// <param name="PremiseChars">How much premise came back.</param>
     /// <param name="QuotesForgotten">Whether stored dialogue was discarded.</param>
+    /// <param name="Dialogue">What the chosen subtitle track produced, or null.</param>
     /// <param name="Note">What still has to happen for this to reach searches.</param>
     public sealed record ReindexResult(
         string Title,
@@ -197,5 +202,6 @@ namespace Jellyfin.Plugin.Concierge.Api
         int Themes,
         int PremiseChars,
         bool QuotesForgotten,
+        string? Dialogue,
         string Note);
 }

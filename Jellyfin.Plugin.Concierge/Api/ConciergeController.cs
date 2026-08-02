@@ -70,6 +70,8 @@ namespace Jellyfin.Plugin.Concierge.Api
         private readonly SearchService _search;
         private readonly IIndexStore _store;
         private readonly EnrichmentService _enrichment;
+        private readonly SubtitleIndexer _subtitleIndexer;
+        private readonly MediaBrowser.Controller.Library.ILibraryManager _library;
         private readonly IQueryLogStore _queryLog;
         private readonly IIndexRunLogStore _indexRuns;
         private readonly ITaskManager _taskManager;
@@ -81,6 +83,8 @@ namespace Jellyfin.Plugin.Concierge.Api
             SearchService search,
             IIndexStore store,
             EnrichmentService enrichment,
+            SubtitleIndexer subtitleIndexer,
+            MediaBrowser.Controller.Library.ILibraryManager library,
             IQueryLogStore queryLog,
             IIndexRunLogStore indexRuns,
             ITaskManager taskManager,
@@ -91,6 +95,8 @@ namespace Jellyfin.Plugin.Concierge.Api
             _search = search;
             _store = store;
             _enrichment = enrichment;
+            _subtitleIndexer = subtitleIndexer;
+            _library = library;
             _queryLog = queryLog;
             _indexRuns = indexRuns;
             _taskManager = taskManager;
@@ -470,7 +476,31 @@ namespace Jellyfin.Plugin.Concierge.Api
         }
 
         /// <summary>
-        /// Redoes one item: asks the model again, and optionally forgets its dialogue.
+        /// The subtitle tracks this item has, and which one its dialogue came from.
+        /// </summary>
+        /// <param name="itemId">The item.</param>
+        /// <response code="200">Its tracks.</response>
+        /// <returns>The tracks.</returns>
+        [HttpGet("Library/{itemId}/Subtitles")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<SubtitleTrackOption>>> Subtitles(
+            [FromRoute] Guid itemId,
+            CancellationToken cancellationToken)
+        {
+            var item = _library.GetItemById(itemId);
+
+            if (item is null)
+            {
+                return Ok(Array.Empty<SubtitleTrackOption>());
+            }
+
+            await Task.Yield();
+            return Ok(_subtitleIndexer.Tracks(item));
+        }
+
+        /// <summary>
+        /// Redoes one item: asks the model again, and optionally re-reads its dialogue.
         /// </summary>
         /// <param name="itemId">The item.</param>
         /// <param name="request">What to redo, and on which model.</param>
@@ -518,16 +548,46 @@ namespace Jellyfin.Plugin.Concierge.Api
                 return NotFound();
             }
 
-            var forgot = request.Quotes
-                && await _quotes.ForgetAsync(itemId, cancellationToken).ConfigureAwait(false);
+            var forgot = false;
+            string? dialogue = null;
+
+            if (request.SubtitleStreamIndex is { } chosen)
+            {
+                // Forget first either way: "None" means stop searching this film's
+                // dialogue, and a re-extract must not leave the old track behind if
+                // the new one yields nothing.
+                forgot = await _quotes.ForgetAsync(itemId, cancellationToken).ConfigureAwait(false);
+
+                if (chosen < 0)
+                {
+                    dialogue = forgot ? "Dialogue removed." : "There was no dialogue stored.";
+                }
+                else
+                {
+                    var media = _library.GetItemById(itemId);
+
+                    if (media is null)
+                    {
+                        dialogue = "That item is no longer in the library.";
+                    }
+                    else
+                    {
+                        var coverage = await _subtitleIndexer
+                            .ExtractAsync(media, chosen, config, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        dialogue = coverage.Indexed
+                            ? $"{coverage.CueCount} line(s) read from track {chosen}."
+                            : "Nothing came out of that track: " + coverage.Reason;
+                    }
+                }
+            }
 
             if (!request.Enrichment)
             {
                 return Ok(new ReindexResult(
-                    document.Title, false, "skipped", string.Empty, string.Empty, 0m, 0, 0, 0, forgot,
-                    forgot
-                        ? "Dialogue forgotten. Run the dialogue extraction task to read it again."
-                        : "Nothing was asked for."));
+                    document.Title, false, "skipped", string.Empty, string.Empty, 0m, 0, 0, 0,
+                    forgot, dialogue, dialogue ?? "Nothing was asked for."));
             }
 
             // The chosen profile and thinking apply to this call only. Nothing is
@@ -608,6 +668,7 @@ namespace Jellyfin.Plugin.Concierge.Api
                 enrichment?.Themes.Count ?? 0,
                 enrichment?.Premise.Length ?? 0,
                 forgot,
+                dialogue,
                 "Saved. Run the index build to embed it — until then this item shows as "
                     + "waiting to be indexed and searches still use the previous answers."));
         }
