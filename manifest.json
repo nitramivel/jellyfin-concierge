@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.25.0.0",
-        "changelog": "Pick which subtitle track a film's dialogue is read from, or None to remove it \u2014 for the film captioned in the wrong language, where the automatic choice is exactly what is wrong. The Concierge toggle is an icon in the search box where the Jellyseerr one was, and that icon is hidden by a setting you can untick. Fixes the search bar doing nothing since 0.18.0.0. Re-index one item on any model with thinking on or off for that call only. Thinking is set per pass. Warns when enrichment has been paid for but not embedded. Folds in 0.19.0.0 through 0.24.0.0.",
+        "version": "0.26.0.0",
+        "changelog": "Phrasings per item can now go to 16, and the enrichment prompt honours the number instead of contradicting it \u2014 its rules said 6-10 while its instruction said the configured value, so anything above 10 was quietly ignored. The spoiler flag is shown on the item itself rather than only as a tag in the list. Pick which subtitle track a film's dialogue is read from, or None to remove it. The Concierge toggle is an icon in the search box. Fixes the search bar doing nothing since 0.18.0.0. Folds in 0.19.0.0 through 0.25.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.25.0.0/concierge_0.25.0.0.zip",
-        "checksum": "e1e1aaa9e0104e9dddfefe26912ddf41",
-        "timestamp": "2026-08-02T22:58:19Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.26.0.0/concierge_0.26.0.0.zip",
+        "checksum": "026196a6fc463d8166e524ff7bd61f74",
+        "timestamp": "2026-08-02T23:16:32Z"
       },
       {
         "version": "0.18.0.0",

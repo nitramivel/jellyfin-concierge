@@ -467,6 +467,28 @@ namespace Jellyfin.Plugin.Concierge.Tests
             Assert.DoesNotContain("jellyseerr-search-icon').style", code, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// The ask count the model is told is the one that was configured.
+        /// </summary>
+        /// <remarks>
+        /// The rules said "6-10 ways" while the instruction said "aim for 12", so a
+        /// setting of 12 produced 8 every time — the model followed the rule and the
+        /// setting looked broken. A count stated twice is a count stated once, badly.
+        /// </remarks>
+        [Fact]
+        public void TheEnrichmentPromptStatesTheAskCountInExactlyOnePlace()
+        {
+            var prompt = Jellyfin.Plugin.Concierge.Core.Documents
+                .EnrichmentPromptBuilder.SystemPrompt;
+
+            Assert.DoesNotContain("6-10", prompt, StringComparison.Ordinal);
+
+            var instruction = Jellyfin.Plugin.Concierge.Core.Documents
+                .EnrichmentPromptBuilder.BuildInstruction(10, 14);
+
+            Assert.Contains("14 entries", instruction, StringComparison.Ordinal);
+        }
+
         [Fact]
         public void TheRowIsHeadedMatches()
         {

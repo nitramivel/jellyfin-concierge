@@ -70,6 +70,10 @@
                 .conciergeRunning { border-left: 3px solid #00a4dc; }
                 .conciergeBehind { border-left: 3px solid #e8a33d; }
                 .conciergeChip.is-pending { background: rgba(232,163,61,0.28); }
+                .conciergeSpoiler {
+                    margin: 0 0 0.8em; padding: 0.6em 0.8em; border-radius: 0.3em;
+                    border-left: 3px solid #e8a33d; background: rgba(232,163,61,0.12);
+                }
                 @keyframes conciergeCrawl { to { background-position: 28px 0; } }
                 .conciergeRunning .conciergeTrack {
                     background-image: linear-gradient(115deg,
@@ -611,7 +615,7 @@
 
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="MaxAsksPerItem">Phrasings kept per item</label>
-                        <input id="MaxAsksPerItem" type="number" step="1" min="0" max="12" class="emby-input" />
+                        <input id="MaxAsksPerItem" type="number" step="1" min="0" max="16" class="emby-input" />
                         <div class="fieldDescription">
                             How many "how someone would describe it" phrasings are indexed per item. Each becomes a
                             vector, so this is the first number to turn down on a large library.
@@ -1190,7 +1194,7 @@
                 // silently turning the pass off.
                 page.querySelector('#EnableEnrichment').checked = config.EnableEnrichment !== false;
                 page.querySelector('#IncludeEpisodes').checked = !!config.IncludeEpisodes;
-                page.querySelector('#MaxAsksPerItem').value = config.MaxAsksPerItem || 8;
+                page.querySelector('#MaxAsksPerItem').value = config.MaxAsksPerItem || 10;
                 page.querySelector('#EnrichmentBatchSize').value = config.EnrichmentBatchSize || 12;
                 page.querySelector('#EmbeddingBatchSize').value = config.EmbeddingBatchSize || 64;
                 page.querySelector('#MaxResults').value = config.MaxResults || 40;
@@ -1246,7 +1250,7 @@
 
                     config.EnableEnrichment = page.querySelector('#EnableEnrichment').checked;
                     config.IncludeEpisodes = page.querySelector('#IncludeEpisodes').checked;
-                    config.MaxAsksPerItem = parseInt(page.querySelector('#MaxAsksPerItem').value, 10) || 8;
+                    config.MaxAsksPerItem = parseInt(page.querySelector('#MaxAsksPerItem').value, 10) || 10;
                     config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
                     config.EmbeddingBatchSize = parseInt(page.querySelector('#EmbeddingBatchSize').value, 10) || 64;
                     config.MaxResults = parseInt(page.querySelector('#MaxResults').value, 10) || 40;
@@ -2275,6 +2279,26 @@
                         + (d.RuntimeMinutes ? ' · ' + escapeHtml(String(d.RuntimeMinutes)) + ' min' : '')
                         + (d.OfficialRating ? ' · ' + escapeHtml(d.OfficialRating) : '')
                         + '</div>';
+
+                    /* The spoiler flag, said where the spoilers are.
+                     *
+                     * It was a chip on the list row and nothing in the detail, so it
+                     * marked the item without ever marking the text — which reads as
+                     * a tag that does not correspond to anything. The flag means the
+                     * enrichment below gives away an ending, and the useful thing is
+                     * knowing that before reading it, plus what Concierge does about
+                     * it: moments are never sent to the re-ranker, and the re-rank
+                     * prompt forbids putting a twist in the reason under a poster. */
+                    if (i.Spoiler) {
+                        html += '<div class="conciergeSpoiler">'
+                            + '<strong>The model flagged this as spoiling something.</strong> '
+                            + 'The premise or moments below give away a twist or an ending.'
+                            + '<div class="conciergeRunMeta" style="margin-top:0.3em;">'
+                            + 'Nobody searching sees this. Moments are never sent to the re-ranker, '
+                            + 'and it is told never to put a twist in the reason shown under a '
+                            + 'poster &mdash; the spoilers exist so ranking can be right about a '
+                            + 'film, not so they can be displayed.</div></div>';
+                    }
 
                     html += '<h4>Premise <span class="conciergeRunMeta">what the model says happens</span></h4>'
                         + (d.Premise

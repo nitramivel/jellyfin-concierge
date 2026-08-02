@@ -12,7 +12,13 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
     public static class EnrichmentPromptBuilder
     {
         /// <summary>How many phrasings to ask for per item.</summary>
-        public const int DefaultAsksPerItem = 8;
+        /// <remarks>
+        /// The asks are the heavy lifter — each is embedded as its own row, so a vague
+        /// sentence is compared against other vague sentences rather than against
+        /// marketing copy. More of them is more surface for a half-remembered query to
+        /// land on, at index-time cost only.
+        /// </remarks>
+        public const int DefaultAsksPerItem = 10;
 
         /// <summary>
         /// The system prompt.
@@ -62,8 +68,9 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
               tense, silly, nostalgic, dark, twisted, comforting). The second kind is
               what someone means when they ask for "something dark and twisted" or "a
               comfort watch", so do not skip it.
-            - asks: 6-10 ways a person might describe this to a friend when they have
-              forgotten the title. Write them as real search phrases — "the one where
+            - asks: ways a person might describe this to a friend when they have
+              forgotten the title. The instruction below says how many; produce that
+              many. Write them as real search phrases — "the one where
               they kill the guy's dog", "that movie with the spinning top". Vary them:
               some about plot, some about a single image, some about the feeling or
               the era. Never include the title itself.
@@ -130,8 +137,9 @@ namespace Jellyfin.Plugin.Concierge.Core.Documents
                 $"""
 
                 Return one object per item, using the integer index above as "i".
-                Cover all {count} items, in order. Aim for {asksPerItem} entries in
-                "asks" for items you know, and an empty list for those you do not.
+                Cover all {count} items, in order. Give {asksPerItem} entries in "asks"
+                for items you know — that number, not fewer — and an empty list for
+                those you do not.
 
                 Respond with JSON only:
                 """);

@@ -176,7 +176,7 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// Each one becomes a vector row, so this multiplies the index's memory
         /// directly — it is the first lever to turn down on a large library.
         /// </remarks>
-        public int MaxAsksPerItem { get; set; } = 8;
+        public int MaxAsksPerItem { get; set; } = 10;
 
         /// <summary>
         /// Gets or sets how many texts are embedded per request.
