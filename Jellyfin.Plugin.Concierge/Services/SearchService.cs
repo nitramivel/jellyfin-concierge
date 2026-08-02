@@ -417,7 +417,9 @@ namespace Jellyfin.Plugin.Concierge.Services
             {
                 // Hard rule 12: both passes resolve from this one Normalize result.
                 var profile = ModelProfiles.Resolve(normalized, config.PlanModelProfileId);
-                var provider = _llmFactory.Create(profile, config.EnableThinking);
+                var provider = _llmFactory.Create(
+                    profile,
+                    ThinkingPolicy.For(config, ThinkingPass.Plan, profile));
 
                 var request = new LlmRequest(
                     PlanPromptBuilder.SystemPrompt,
@@ -523,7 +525,9 @@ namespace Jellyfin.Plugin.Concierge.Services
             try
             {
                 var profile = ModelProfiles.Resolve(normalized, config.RerankModelProfileId);
-                var provider = _llmFactory.Create(profile, config.EnableThinking);
+                var provider = _llmFactory.Create(
+                    profile,
+                    ThinkingPolicy.For(config, ThinkingPass.Rerank, profile));
 
                 // The candidate list changes every query, so there is nothing a later
                 // call could read back from a cache — everything goes in the prefix and

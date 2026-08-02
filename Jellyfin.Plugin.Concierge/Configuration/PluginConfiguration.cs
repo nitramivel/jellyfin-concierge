@@ -102,6 +102,30 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         /// </remarks>
         public bool EnableThinking { get; set; }
 
+        /// <summary>Whether the plan pass may think. Inherit follows <see cref="EnableThinking"/>.</summary>
+        /// <remarks>
+        /// Per pass because the trade is opposite at the two ends. Reasoning tokens are
+        /// billed as output and generated before the answer, so on a search they are
+        /// pure latency — measured here at 39% of everything the re-rank generated —
+        /// while on enrichment nobody is waiting and what it writes is the ceiling on
+        /// every search afterwards.
+        /// </remarks>
+        public ThinkingMode PlanThinking { get; set; } = ThinkingMode.Inherit;
+
+        /// <summary>Whether the re-rank pass may think. Inherit follows <see cref="EnableThinking"/>.</summary>
+        /// <remarks>
+        /// The one to leave off. Re-rank is ~99% of the time a search takes, and its
+        /// duration is the tokens it writes.
+        /// </remarks>
+        public ThinkingMode RerankThinking { get; set; } = ThinkingMode.Inherit;
+
+        /// <summary>Whether enrichment may think. Inherit follows <see cref="EnableThinking"/>.</summary>
+        /// <remarks>
+        /// The one worth turning on. It runs once per item during a scheduled build, so
+        /// the cost is money and not waiting, and the answer is permanent.
+        /// </remarks>
+        public ThinkingMode EnrichmentThinking { get; set; } = ThinkingMode.Inherit;
+
         /// <summary>
         /// Gets or sets the output-token cap applied to a single model call.
         /// </summary>

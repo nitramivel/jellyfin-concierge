@@ -448,32 +448,75 @@
                 <!-- Call shape -->
                 <div class="conciergeSection" data-concierge-tab="models">
                     <h3>Call shape</h3>
-
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input is="emby-checkbox" type="checkbox" id="EnableThinking" />
-                            <span>Let models think by default</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">
-                            <strong>Yes, this affects live searches.</strong> It is the starting point for every chat
-                            pass whose profile is set to &ldquo;follow the global setting&rdquo; &mdash; plan and
-                            re-rank on every search, and enrichment during an index build.
-                            <br />
-                            Off by default, and search is why: re-rank latency is the tokens the model writes, and
-                            thinking is tokens. Measured here, it was <strong>39% of everything generated</strong> on
-                            an install that had this box unticked &mdash; because until 0.12.0.0 the setting was
-                            silently ignored on OpenAI. It works on all three providers now.
-                            <br />
-                            The trade is not the same for every pass. Nobody is waiting on enrichment and its quality
-                            is permanent, so thinking there may well be worth it; nobody wants it on a re-rank. If you
-                            want both, leave this off and set <em>Thinking</em> to &ldquo;on&rdquo; on a profile you
-                            point the enrichment pass at.
-                        </div>
+                    <div class="conciergeSectionNote">
+                        <strong>Thinking is reasoning the model does before it answers.</strong> Those tokens
+                        are generated first, billed at the output rate, and counted against the same output
+                        cap &mdash; so they cost money and, mostly, time. Measured on this library: a re-rank
+                        call&rsquo;s duration tracks the tokens it writes at 0.94 correlation, at a flat
+                        ~166 tokens a second, and thinking was <strong>39% of everything generated</strong>.
+                        <br />
+                        The trade is opposite at the two ends, which is why it is set per pass. Nobody waits
+                        on enrichment &mdash; it runs once per item during a scheduled build, and what it
+                        writes is the ceiling on every search afterwards. Re-rank runs on every search with
+                        somebody watching, where the same tokens are pure delay.
                     </div>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="MaxOutputTokens">Maximum output tokens per call</label>
-                        <input id="MaxOutputTokens" type="number" step="500" min="500" class="emby-input" />
+                    <table class="conciergePasses">
+                        <thead><tr><th>Pass</th><th>What thinking buys, or costs</th><th>Thinking</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><label for="EnableThinking">Default</label></td>
+                                <td>
+                                    What any pass below follows unless it says otherwise.
+                                    <div class="conciergePassWhen">A profile set explicitly to think, or not,
+                                    overrides everything here &mdash; that is how one model is configured twice.</div>
+                                </td>
+                                <td>
+                                    <select is="emby-select" id="EnableThinking" class="emby-select-withcolor emby-select">
+                                        <option value="Off">Do not think</option>
+                                        <option value="On">Think</option>
+                                    </select>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><label for="PlanThinking">Plan</label></td>
+                                <td>
+                                    Reads constraints out of the sentence.
+                                    <div class="conciergePassWhen">Short, and skipped on most queries. Thinking
+                                    here changes little either way.</div>
+                                </td>
+                                <td><select is="emby-select" id="PlanThinking" class="emby-select-withcolor emby-select"><option value="Inherit">Follow the default</option><option value="On">Think</option><option value="Off">Do not think</option></select></td>
+                            </tr>
+                            <tr>
+                                <td><label for="RerankThinking">Re-rank</label></td>
+                                <td>
+                                    Orders the shortlist and says why.
+                                    <div class="conciergePassWhen"><strong>Leave this off.</strong> It is about
+                                    99% of the time a search takes, and its duration is the tokens it writes.</div>
+                                </td>
+                                <td><select is="emby-select" id="RerankThinking" class="emby-select-withcolor emby-select"><option value="Inherit">Follow the default</option><option value="On">Think</option><option value="Off">Do not think</option></select></td>
+                            </tr>
+                            <tr>
+                                <td><label for="EnrichmentThinking">Enrichment</label></td>
+                                <td>
+                                    Writes what each item is about.
+                                    <div class="conciergePassWhen"><strong>The one worth turning on.</strong>
+                                    Index build only, once per item, nobody waiting &mdash; and the answer is
+                                    permanent. Costs money, not responsiveness.</div>
+                                </td>
+                                <td><select is="emby-select" id="EnrichmentThinking" class="emby-select-withcolor emby-select"><option value="Inherit">Follow the default</option><option value="On">Think</option><option value="Off">Do not think</option></select></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="inputContainer" style="margin-top:1em;">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxOutputTokens">Output cap (tokens)</label>
+                        <input id="MaxOutputTokens" type="number" step="1000" min="1000" max="64000" class="emby-input" />
+                        <div class="fieldDescription">
+                            The ceiling on one reply. <strong>Thinking counts against it</strong>, so a model that
+                            reasons at length can hit this cap before it has finished answering &mdash; which
+                            looks like a truncated batch rather than a setting that is too low.
+                        </div>
                     </div>
                 </div>
 
@@ -1113,7 +1156,13 @@
                 fillProfileSelect(page.querySelector('#EmbeddingProfileId'), embeddingProfiles,
                     config.EmbeddingProfileId || '', 'Use the default embedding profile');
 
-                page.querySelector('#EnableThinking').checked = !!config.EnableThinking;
+                // Was a checkbox, is now a select of the same two states — so the
+                // stored boolean still reads correctly and nobody's saved setting
+                // changes meaning on upgrade.
+                setEnumSelect(page.querySelector('#EnableThinking'), config.EnableThinking ? 'On' : 'Off');
+                setEnumSelect(page.querySelector('#PlanThinking'), config.PlanThinking);
+                setEnumSelect(page.querySelector('#RerankThinking'), config.RerankThinking);
+                setEnumSelect(page.querySelector('#EnrichmentThinking'), config.EnrichmentThinking);
                 page.querySelector('#MaxOutputTokens').value = config.MaxOutputTokens || 8000;
 
                 // EnableEnrichment defaults to ON, so an undefined value — a config
@@ -1168,7 +1217,10 @@
                     config.EnrichmentModelProfileId = page.querySelector('#EnrichmentModelProfileId').value;
                     config.EmbeddingProfileId = page.querySelector('#EmbeddingProfileId').value;
 
-                    config.EnableThinking = page.querySelector('#EnableThinking').checked;
+                    config.EnableThinking = page.querySelector('#EnableThinking').value === 'On';
+                    config.PlanThinking = page.querySelector('#PlanThinking').value;
+                    config.RerankThinking = page.querySelector('#RerankThinking').value;
+                    config.EnrichmentThinking = page.querySelector('#EnrichmentThinking').value;
                     config.MaxOutputTokens = parseInt(page.querySelector('#MaxOutputTokens').value, 10) || 8000;
 
                     config.EnableEnrichment = page.querySelector('#EnableEnrichment').checked;

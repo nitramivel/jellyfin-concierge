@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.22.0.0",
-        "changelog": "A Library tab: every indexed item and everything Concierge holds for it \u2014 premise, themes, moments, asks, the exact text embedded for each vector row, extracted dialogue, and which build wrote it, at what cost, on which model. Build history is expandable: what each model charged and at what rates, where a cancelled run was heading, every step, and every item it touched sorted emptiest first. Index builds show a live progress bar above the tabs while they run. Folds in 0.19.0.0 through 0.21.0.0.",
+        "version": "0.23.0.0",
+        "changelog": "Thinking is now set per pass: leave it on for enrichment, where nobody is waiting and the answer is permanent, and off for searches, where the same tokens are pure delay. Call shape is a table like the model assignment, and says what thinking buys or costs on each pass. Also the Library tab: every indexed item and everything Concierge holds for it, tied to the build that wrote it, with an expandable build history and a live progress bar while a build runs. Folds in 0.19.0.0 through 0.22.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.22.0.0/concierge_0.22.0.0.zip",
-        "checksum": "bbfa8bd1adffeea89299157934cfd8b6",
-        "timestamp": "2026-08-02T21:28:12Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.23.0.0/concierge_0.23.0.0.zip",
+        "checksum": "6cc9eeaad0d039136d554e38a1bf4585",
+        "timestamp": "2026-08-02T22:14:15Z"
       },
       {
         "version": "0.18.0.0",

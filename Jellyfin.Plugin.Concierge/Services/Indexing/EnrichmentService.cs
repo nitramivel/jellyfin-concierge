@@ -110,7 +110,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             // profile each time and report one run as many models.
             var normalized = ModelProfiles.Normalize(config);
             var profile = ModelProfiles.Resolve(normalized, config.EnrichmentModelProfileId);
-            var provider = _providerFactory.Create(profile, config.EnableThinking);
+            var provider = _providerFactory.Create(
+                profile,
+                ThinkingPolicy.For(config, ThinkingPass.Enrichment, profile));
             var pricing = RunPricing.From(profile);
 
             var batchSize = Math.Max(1, config.EnrichmentBatchSize);
