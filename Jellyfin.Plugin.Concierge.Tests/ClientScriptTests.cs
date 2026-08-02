@@ -145,13 +145,31 @@ namespace Jellyfin.Plugin.Concierge.Tests
             Assert.DoesNotContain("replaceWith", Script, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// The row sits above every other result row, whoever owns it.
+        /// </summary>
+        /// <remarks>
+        /// Concierge answers the question that was actually asked — a description
+        /// rather than a substring — so putting it under the rows that matched on
+        /// spelling makes the reader scroll past the worse answer to reach the better
+        /// one. It anchors on the first result section rather than on any one
+        /// plugin's, so a new row from a third plugin cannot end up above it.
+        /// </remarks>
         [Fact]
-        public void ItAnchorsToTheJellyseerrSectionByItsRealClassName()
+        public void TheRowSitsAboveEveryOtherResultRow()
         {
-            // Read out of Jellyfin Enhanced 12.0.0.0 rather than guessed. If this
-            // ever fails, the placement silently falls back to appending — which is
-            // the bad placement the owner reported — so it fails loudly here first.
-            Assert.Contains(".jellyseerr-section", Script, StringComparison.Ordinal);
+            var position = Between(Script, "function position(el, page)", "function firstResultSection(");
+
+            Assert.Contains("firstResultSection(page, el)", position, StringComparison.Ordinal);
+            Assert.Contains("insertBefore(el, first)", position, StringComparison.Ordinal);
+
+            // Above the "no results" line too: an answer underneath a notice saying
+            // there is no answer reads as a contradiction.
+            Assert.Contains("insertBefore(el, noResults)", position, StringComparison.Ordinal);
+            Assert.DoesNotContain("noResults.nextSibling", position, StringComparison.Ordinal);
+
+            var first = Between(Script, "function firstResultSection(", "function itemLink(");
+            Assert.Contains("sections[i] !== el", first, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -294,6 +312,70 @@ namespace Jellyfin.Plugin.Concierge.Tests
         /// not own, or without remembering what we hid, is how a page ends up with
         /// sections nobody can bring back.
         /// </remarks>
+        /// <summary>
+        /// The status names the stage, and the stage changes without a re-render.
+        /// </summary>
+        /// <remarks>
+        /// "searching" and "ranking" are different waits — one is free and about to
+        /// end, the other is the model — and a row that says which is a row you can
+        /// decide to stop waiting on.
+        /// <para>
+        /// It has to change while cards are on screen, so it is written as text into
+        /// a node that is always present rather than by rebuilding the heading. A
+        /// re-render to say "searching" would throw away the results the reader is
+        /// looking at, which is the opposite of the point.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void TheStatusNamesTheStageAndIsWrittenAsTextNotMarkup()
+        {
+            var code = WithoutComments(Script);
+
+            Assert.Contains("statusLabel('searching')", code, StringComparison.Ordinal);
+            Assert.Contains("statusLabel(provisional ? 'ranking' : '')", code, StringComparison.Ordinal);
+            Assert.Contains(".concierge-statustext').textContent", code, StringComparison.Ordinal);
+
+            var setStatus = Between(Script, "function setStatus(", "function section(");
+            Assert.DoesNotContain("innerHTML", setStatus, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The debounce is a setting, and changing it reaches the browser.
+        /// </summary>
+        /// <remarks>
+        /// Substituted into the served file rather than fetched by the client at
+        /// startup, because a second request would mean the first keystroke either
+        /// races it or waits for it.
+        /// <para>
+        /// The URL carries a hash of what is actually served, so changing the setting
+        /// changes the URL and the browser cannot keep the old number — the same
+        /// mechanism that stopped 0.10.0.0 shipping invisibly.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void TheDebounceIsSubstitutedIntoTheServedScript()
+        {
+            // The embedded default is what the substitution replaces, so it has to
+            // still be there in the shape the replacement looks for.
+            Assert.Matches(@"var DEBOUNCE_MS = \d+;", Script);
+
+            var served = ScriptInjector.Configured();
+
+            // No plugin instance in a test run, so this is the raw script — the point
+            // is that the path exists and does not mangle the file.
+            Assert.Equal(Script, served);
+            Assert.Matches(@"var DEBOUNCE_MS = \d+;", served);
+        }
+
+        [Fact]
+        public void TheRowIsHeadedMatches()
+        {
+            var code = WithoutComments(Script);
+
+            Assert.Contains("'Matches' + statusLabel", code, StringComparison.Ordinal);
+            Assert.DoesNotContain("Concierge matches", code, StringComparison.Ordinal);
+        }
+
         [Fact]
         public void ConciergeModeHidesWithItsOwnClassAndNobodyElses()
         {
@@ -417,11 +499,11 @@ namespace Jellyfin.Plugin.Concierge.Tests
         }
 
         [Fact]
-        public void EmptyNativeSearchUsesTheSameLandmarkAsDiscoverOnSeerr()
+        public void AnEmptyNativeSearchStillHasAPlaceToPutTheRow()
         {
             Assert.Contains("page.querySelector('.noItemsMessage')", Script, StringComparison.Ordinal);
             Assert.Contains(
-                "noResults.parentNode.insertBefore(el, noResults.nextSibling)",
+                "noResults.parentNode.insertBefore(el, noResults)",
                 Script,
                 StringComparison.Ordinal);
         }

@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.18.0.0",
+        "changelog": "The row is called Matches, sits at the top of the search page, says whether it is searching or ranking, and the wait before a paid search is now a setting.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.18.0.0/concierge_0.18.0.0.zip",
+        "checksum": "4d50c5b0f35e30799bb8eec27eaddbc1",
+        "timestamp": "2026-08-02T11:09:11Z"
+      },
+      {
         "version": "0.17.0.0",
         "changelog": "The settings page is tabbed, and 'which model runs which pass' is now the first thing on the Models tab instead of the seventh heading down. Per-pass model choice always existed; the layout was hiding it.",
         "targetAbi": "10.11.11.0",

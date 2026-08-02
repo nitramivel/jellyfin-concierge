@@ -224,6 +224,23 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public int RerankWhyMaxChars { get; set; } = 60;
 
         /// <summary>
+        /// How long the search box must be idle before Concierge spends anything, in
+        /// milliseconds.
+        /// </summary>
+        /// <remarks>
+        /// Jellyfin's own search waits 500 ms because its requests are free. This one
+        /// costs money, so it waits for a query somebody has finished typing rather
+        /// than a slightly later copy of every prefix. Measured effect of raising it
+        /// to 2,000 ms: half-typed queries fell from 28 of 89 searches to 5 of 30.
+        /// <para>
+        /// The free preview is unaffected and still paints in about 250 ms, so a long
+        /// wait here costs no responsiveness — only the moment the ranked order
+        /// arrives. Enter always runs immediately.
+        /// </para>
+        /// </remarks>
+        public int SearchDebounceMs { get; set; } = 2000;
+
+        /// <summary>
         /// How many of the ranked results get a reason written for them.
         /// </summary>
         /// <remarks>

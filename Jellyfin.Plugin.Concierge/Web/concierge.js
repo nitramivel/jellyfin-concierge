@@ -111,6 +111,7 @@
         // a decoration.
         '@keyframes concierge-blink{0%,80%,100%{opacity:.25;}40%{opacity:1;}}' +
         '#concierge-results .concierge-dots span{animation:concierge-blink 1.4s infinite;}' +
+        '#concierge-results .concierge-status.is-idle{display:none;}' +
         '#concierge-results .concierge-dots span:nth-child(2){animation-delay:.2s;}' +
         '#concierge-results .concierge-dots span:nth-child(3){animation-delay:.4s;}' +
 
@@ -237,40 +238,33 @@
      * observer disconnects; ours runs on every render and lands ~20s later, so we
      * settle above them and stay there. */
     function position(el, page) {
-        var before = page.querySelector('.jellyseerr-section');
+        // Above every result row, always: ours, then the library's, then Seerr's.
+        //
+        // Concierge answers the question that was actually asked — a description
+        // rather than a substring — so burying it under the rows that matched on
+        // spelling makes the reader scroll past the worse answer to reach the better
+        // one. Native results are still right there, unchanged and one row down.
+        //
+        // Still only OUR node moves. The others are read to find a landmark and are
+        // never touched, which is what the tests hold.
+        var first = firstResultSection(page, el);
 
-        if (before && before.parentNode) {
-            if (el.nextElementSibling !== before || el.parentNode !== before.parentNode) {
-                before.parentNode.insertBefore(el, before);
+        if (first && first.parentNode) {
+            if (el.nextElementSibling !== first || el.parentNode !== first.parentNode) {
+                first.parentNode.insertBefore(el, first);
             }
 
             return;
         }
 
-        // Jellyfin's empty-search state is the reliable landmark when there are no
-        // native Movies/Shows sections. Jellyfin Enhanced inserts "Discover on
-        // Seerr" beside this node. Appending to #searchPage instead puts the row
-        // outside the padded results layout, which collapses the cards into the
-        // raw, full-width text list seen in the browser.
+        // Nothing matched natively. Above the "no results" line rather than below it:
+        // Concierge may well have found something, and an answer underneath a notice
+        // saying there is no answer reads as a contradiction.
         var noResults = page.querySelector('.noItemsMessage');
 
         if (noResults && noResults.parentNode) {
-            if (el.previousElementSibling !== noResults
-                    || el.parentNode !== noResults.parentNode) {
-                noResults.parentNode.insertBefore(el, noResults.nextSibling);
-            }
-
-            return;
-        }
-
-        // No Seerr section yet — sit after the native results instead of at the
-        // end of the page, so we are in the right place before it arrives rather
-        // than visibly jumping when it does.
-        var after = lastNativeSection(page);
-
-        if (after && after.parentNode) {
-            if (el.previousElementSibling !== after) {
-                after.parentNode.insertBefore(el, after.nextSibling);
+            if (el.nextElementSibling !== noResults || el.parentNode !== noResults.parentNode) {
+                noResults.parentNode.insertBefore(el, noResults);
             }
 
             return;
@@ -280,16 +274,24 @@
             '.searchResults, [class*="searchResults"], .padded-top.padded-bottom-page');
         var parent = results || page;
 
-        if (el.parentNode !== parent) {
-            parent.appendChild(el);
+        if (el.parentNode !== parent || parent.firstElementChild !== el) {
+            parent.insertBefore(el, parent.firstChild);
         }
     }
 
-    function lastNativeSection(page) {
-        var sections = page.querySelectorAll(
-            '.verticalSection:not(.jellyseerr-section):not(#' + CONTAINER_ID + ')');
+    // The first result row on the page, whoever owns it — ours excluded, or we would
+    // spend every render trying to insert ourselves before ourselves.
+    function firstResultSection(page, el) {
+        var sections = page.querySelectorAll('.verticalSection');
 
-        return sections.length ? sections[sections.length - 1] : null;
+        for (var i = 0; i < sections.length; i++) {
+            if (sections[i] !== el) {
+                return sections[i];
+            }
+        }
+
+        return null;
+    }
     }
 
     function modeOn() {
@@ -489,9 +491,36 @@
         return all;
     }
 
-    function thinkingLabel() {
-        return ' <span class="concierge-note concierge-dots">ranking'
-            + '<span>.</span><span>.</span><span>.</span></span>';
+    /* The status line, in the heading.
+     *
+     * Always present, even when empty, so that changing it later is a text edit on a
+     * node we already own rather than a re-render of the row. That matters: the
+     * status has to change while results are on screen, and re-rendering to say
+     * "searching" would throw away the cards the reader is currently looking at.
+     *
+     * It names the stage rather than just animating. "searching" and "ranking" are
+     * different waits — one is free and about to end, the other is the model — and a
+     * row that says which is a row you can decide to stop waiting on. */
+    function statusLabel(text) {
+        return ' <span class="concierge-note concierge-status' + (text ? '' : ' is-idle') + '">'
+            + '<span class="concierge-statustext">' + escapeHtml(text || '') + '</span>'
+            + '<span class="concierge-dots"><span>.</span><span>.</span><span>.</span></span>'
+            + '</span>';
+    }
+
+    // Text, not markup. The status changes while cards are on screen, so it is set
+    // by writing to a text node we already own — no innerHTML anywhere but our own
+    // container, which is the rule the whole script is held to.
+    function setStatus(text) {
+        var el = ourSection();
+        var slot = el && el.querySelector('.concierge-status');
+
+        if (!slot) {
+            return;
+        }
+
+        slot.querySelector('.concierge-statustext').textContent = text || '';
+        slot.classList.toggle('is-idle', !text);
     }
 
     function section(heading, cards) {
@@ -641,7 +670,7 @@
 
         if (hasHits) {
             html += section(
-                'Concierge matches' + (provisional ? thinkingLabel() : ''),
+                'Matches' + statusLabel(provisional ? 'ranking' : ''),
                 renderHits(result));
         }
 
@@ -671,7 +700,7 @@
 
         el.classList.add('concierge-working');
         el.classList.remove('concierge-pending');
-        el.innerHTML = section('Concierge matches' + thinkingLabel(), skeletonCards(7));
+        el.innerHTML = section('Matches' + statusLabel('searching'), skeletonCards(7));
         applyMode(searchPage());
     }
 
@@ -787,6 +816,8 @@
 
         if (el && el.innerHTML !== '') {
             el.classList.add('concierge-pending');
+            el.classList.add('concierge-working');
+            setStatus('searching');
         }
     }
 

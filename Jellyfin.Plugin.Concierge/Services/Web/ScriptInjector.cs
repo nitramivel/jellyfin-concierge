@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -49,8 +50,14 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
         /// changes when and only when the script does, so an unchanged script still
         /// hits cache across upgrades and a changed one cannot be served stale.
         /// </para>
+        /// <para>
+        /// Computed per call rather than cached, because the script carries settings:
+        /// change the debounce and the served file changes, so the URL has to change
+        /// with it or the browser keeps the old number forever. Hashing twenty-odd
+        /// kilobytes costs microseconds and only happens on index and script requests.
+        /// </para>
         /// </remarks>
-        private static readonly string Fingerprint = Fingerprinted(ReadScript());
+        private static string Fingerprint => Fingerprinted(Configured());
 
         private readonly ILogger<ScriptInjector> _logger;
 
@@ -177,9 +184,35 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
             return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
         }
 
-        private async Task ServeScriptAsync(HttpContext context)
+        /// <summary>
+        /// The script as served: the embedded file with the owner's settings in it.
+        /// </summary>
+        /// <remarks>
+        /// Substituted here rather than fetched by the client at startup, because a
+        /// second request would mean the first keystroke either races it or waits for
+        /// it. The value is a number in a file we already serve.
+        /// </remarks>
+        public static string Configured()
         {
             var script = ReadScript();
+            var config = Plugin.Instance?.Configuration;
+
+            if (script.Length == 0 || config is null)
+            {
+                return script;
+            }
+
+            var debounce = Math.Clamp(config.SearchDebounceMs, 250, 30000);
+
+            return System.Text.RegularExpressions.Regex.Replace(
+                script,
+                @"var DEBOUNCE_MS = \d+;",
+                "var DEBOUNCE_MS = " + debounce.ToString(CultureInfo.InvariantCulture) + ";");
+        }
+
+        private async Task ServeScriptAsync(HttpContext context)
+        {
+            var script = Configured();
             if (script.Length == 0)
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
