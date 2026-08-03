@@ -65,6 +65,11 @@ namespace Jellyfin.Plugin.Concierge
 
             serviceCollection.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, IndexBuildTask>();
             serviceCollection.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, SubtitleExtractTask>();
+
+            // Enrichment without an index write, for the long expensive passes. It
+            // ships with no default trigger, so registering it only makes it available
+            // in Dashboard → Scheduled Tasks rather than starting anything.
+            serviceCollection.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, EnrichmentBankTask>();
         }
     }
 }

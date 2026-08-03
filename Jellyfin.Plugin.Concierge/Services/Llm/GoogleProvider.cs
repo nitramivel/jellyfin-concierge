@@ -28,6 +28,13 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         private readonly string _apiKey;
         private readonly Uri _endpoint;
         private readonly bool _enableThinking;
+
+        /// <summary>
+        /// Set once a model has refused <c>thinkingBudget: 0</c> and answered without
+        /// it, so the cost of having asked is one failed call rather than one per
+        /// query for as long as that profile is selected.
+        /// </summary>
+        private volatile bool _thinkingBudgetRejected;
         private readonly TimeSpan _initialRetryDelay;
 
         /// <param name="httpClient">The HTTP client.</param>
@@ -72,19 +79,68 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         {
             ArgumentNullException.ThrowIfNull(request);
 
-            var body = await SendWithRetriesAsync(request, cancellationToken).ConfigureAwait(false);
-            using var document = JsonDocument.Parse(body);
-            return ParseResponse(document.RootElement);
+            try
+            {
+                var body = await SendWithRetriesAsync(request, cancellationToken).ConfigureAwait(false);
+                using var document = JsonDocument.Parse(body);
+                return ParseResponse(document.RootElement);
+            }
+            catch (HttpRequestException ex)
+                when (!_enableThinking && !_thinkingBudgetRejected && IsBadRequest(ex.Message))
+            {
+                // Not every Gemini model can be told not to think, and the ones that
+                // cannot reject the whole request rather than ignoring the field. That
+                // is a permanent 400 on every call, which is how a re-rank profile
+                // pointed at such a model produced forty-one consecutive failures over
+                // three hours with no symptom except worse results.
+                //
+                // So: ask again without the budget and let the model reason if it must.
+                // Thinking costs money and latency, but a model that answers is worth
+                // more than a setting that is obeyed.
+                var body = await SendWithRetriesAsync(request, cancellationToken, omitThinkingConfig: true)
+                    .ConfigureAwait(false);
+
+                // Latched only now, after the retry has actually worked. A 400 has many
+                // causes and Gemini's message names none of them — if the retry fails
+                // too then the budget was never the problem, and quietly turning
+                // thinking on for the rest of the process would be a second bug hiding
+                // the first. The cost of not latching is one extra failed call per
+                // query; the cost of latching wrongly is a setting that silently stops
+                // meaning anything.
+                _thinkingBudgetRejected = true;
+
+                using var document = JsonDocument.Parse(body);
+                return ParseResponse(document.RootElement);
+            }
         }
+
+        /// <summary>
+        /// Whether a failure was the API rejecting the request itself.
+        /// </summary>
+        /// <remarks>
+        /// Broader than the equivalent check in <see cref="OpenAiChatProvider"/>, which
+        /// can look for the offending field by name. Gemini's refusal is a bare
+        /// <c>INVALID_ARGUMENT</c> with the message "Request contains an invalid
+        /// argument" and no <c>details</c>, so there is nothing narrower to match on.
+        /// The retry is bounded instead: only when a budget was actually sent, only on
+        /// 400, and only once per provider.
+        /// </remarks>
+        /// <param name="message">The failure message.</param>
+        /// <returns>Whether it was an HTTP 400.</returns>
+        private static bool IsBadRequest(string message)
+            => message.Contains("returned 400", StringComparison.Ordinal);
 
         /// <summary>
         /// Posts the request, retrying the transient failures Gemini produces in
         /// normal use. See <see cref="TransientHttpRetry"/> for the line between
         /// transient and permanent.
         /// </summary>
-        private Task<string> SendWithRetriesAsync(LlmRequest request, CancellationToken cancellationToken)
+        private Task<string> SendWithRetriesAsync(
+            LlmRequest request,
+            CancellationToken cancellationToken,
+            bool omitThinkingConfig = false)
         {
-            var payload = BuildRequestBody(request);
+            var payload = BuildRequestBody(request, omitThinkingConfig);
 
             return TransientHttpRetry.SendAsync(
                 _httpClient,
@@ -100,7 +156,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 cancellationToken);
         }
 
-        private object BuildRequestBody(LlmRequest request)
+        private object BuildRequestBody(LlmRequest request, bool omitThinkingConfig = false)
         {
             return new
             {
@@ -121,7 +177,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                     },
                 },
                 safetySettings = SafetySettings,
-                generationConfig = BuildGenerationConfig(request),
+                generationConfig = BuildGenerationConfig(request, omitThinkingConfig),
             };
         }
 
@@ -184,7 +240,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             return [.. parts];
         }
 
-        private object BuildGenerationConfig(LlmRequest request)
+        private object BuildGenerationConfig(LlmRequest request, bool omitThinkingConfig)
         {
             var config = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
@@ -206,7 +262,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             // setting is a yes/no. When disabled, budget 0 turns it off; note the Pro
             // models refuse a zero budget and return 400, which is the API saying the
             // same thing the plan does: leave it on for those.
-            if (!_enableThinking)
+            if (!_enableThinking && !omitThinkingConfig && !_thinkingBudgetRejected)
             {
                 config["thinkingConfig"] = new { thinkingBudget = 0 };
             }

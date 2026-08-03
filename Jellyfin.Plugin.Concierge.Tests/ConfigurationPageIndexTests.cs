@@ -36,6 +36,30 @@ namespace Jellyfin.Plugin.Concierge.Tests
         public void ScheduledTaskKeyHasOneSharedDefinition()
         {
             Assert.Equal("ConciergeIndexBuild", IndexBuildTask.TaskKey);
+            Assert.Equal("ConciergeEnrichmentBank", EnrichmentBankTask.TaskKey);
+        }
+
+        /// <summary>
+        /// A setting is only real once it is on the page, read into the form, and
+        /// written back out.
+        /// </summary>
+        /// <remarks>
+        /// Stored configuration beats code defaults on this plugin: changing a default
+        /// in <c>PluginConfiguration</c> does nothing to a live install, because the
+        /// saved XML is what the server reads. So a field with an input but no save
+        /// line is not a small bug — it is a setting that silently cannot be changed,
+        /// and it looks completely normal in the browser.
+        /// </remarks>
+        [Theory]
+        [InlineData("EnrichmentConcurrency")]
+        [InlineData("EnrichmentBatchSize")]
+        [InlineData("EmbeddingBatchSize")]
+        [InlineData("MaxOutputTokens")]
+        public void ASettingOnThePage_IsBothLoadedAndSaved(string id)
+        {
+            Assert.Contains($"id=\"{id}\"", Page, StringComparison.Ordinal);
+            Assert.Contains($"page.querySelector('#{id}').value = config.{id}", Page, StringComparison.Ordinal);
+            Assert.Contains($"config.{id} = parseInt(page.querySelector('#{id}').value", Page, StringComparison.Ordinal);
         }
 
         private static string ReadPage()

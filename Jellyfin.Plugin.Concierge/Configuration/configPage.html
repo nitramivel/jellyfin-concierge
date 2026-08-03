@@ -720,6 +720,20 @@
                     </div>
 
                     <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="EnrichmentConcurrency">Enrichment calls at once</label>
+                        <input id="EnrichmentConcurrency" type="number" step="1" min="1" max="16" class="emby-input" />
+                        <div class="fieldDescription">
+                            Batches are independent, so several can be in flight together. One is serial, which is
+                            how this has always behaved. Raising it divides the wall clock almost in step &mdash;
+                            measured here at 55 seconds a batch, a 5,272-item library is about eight hours at one
+                            and about two at four. It does not change what a pass costs: the same batches get sent
+                            either way. The ceiling is your provider's rate limit, and past it the retry backoff
+                            makes the pass slower rather than faster, so raise it a step at a time and watch the
+                            build log for retries.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="EmbeddingBatchSize">Texts per embedding call</label>
                         <input id="EmbeddingBatchSize" type="number" step="1" min="1" max="512" class="emby-input" />
                     </div>
@@ -1289,6 +1303,7 @@
                 page.querySelector('#MaxThemesPerItem').value = config.MaxThemesPerItem || 8;
                 page.querySelector('#MaxMomentsPerItem').value = config.MaxMomentsPerItem || 6;
                 page.querySelector('#EnrichmentBatchSize').value = config.EnrichmentBatchSize || 12;
+                page.querySelector('#EnrichmentConcurrency').value = config.EnrichmentConcurrency || 1;
                 page.querySelector('#EmbeddingBatchSize').value = config.EmbeddingBatchSize || 64;
                 page.querySelector('#MaxResults').value = config.MaxResults || 40;
 
@@ -1349,6 +1364,7 @@
                     config.MaxThemesPerItem = parseInt(page.querySelector('#MaxThemesPerItem').value, 10) || 8;
                     config.MaxMomentsPerItem = parseInt(page.querySelector('#MaxMomentsPerItem').value, 10) || 6;
                     config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
+                    config.EnrichmentConcurrency = parseInt(page.querySelector('#EnrichmentConcurrency').value, 10) || 1;
                     config.EmbeddingBatchSize = parseInt(page.querySelector('#EmbeddingBatchSize').value, 10) || 64;
                     config.MaxResults = parseInt(page.querySelector('#MaxResults').value, 10) || 40;
 
@@ -2292,7 +2308,13 @@
                 }
 
                 if (item.Pending) {
-                    chips.push('<span class="conciergeChip is-pending">not indexed</span>');
+                    // NOT "not indexed". The item is indexed and searchable; what is
+                    // stale is the enrichment behind it, because it was regenerated
+                    // without a rebuild. The old wording read as "missing from search"
+                    // and sent people looking for a fault that was not there.
+                    chips.push('<span class="conciergeChip is-pending" title="This item is '
+                        + 'searchable, but its stored enrichment is newer than what is embedded. '
+                        + 'Run the index build task to catch it up.">enrichment not embedded</span>');
                 }
 
                 if (item.Spoiler) {

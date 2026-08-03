@@ -185,88 +185,141 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 batches.Count,
                 profile.Model);
 
+            // Groups stay sequential so films and shows finish before episodes start,
+            // and so each group's provider and thinking decision apply to exactly the
+            // batches they were resolved for. The parallelism is inside a group, where
+            // every batch is independent of every other.
+            var concurrency = Math.Max(1, config.EnrichmentConcurrency);
+            var completed = 0;
+            var groupOffset = 0;
+
+            // Guards the five running totals and the results list. Everything a batch
+            // reports is folded in here rather than in the worker, so the numbers a
+            // step prints are a consistent snapshot instead of five values read while
+            // three other batches were finishing.
+            var tally = new object();
+
             try
             {
-                var i = -1;
-
                 foreach (var group in groups)
                 {
-                    var groupProvider = _providerFactory.Create(
-                        group.Profile,
-                        ThinkingPolicy.For(config, group.Pass, group.Profile));
+                    var groupThinking = ThinkingPolicy.For(config, group.Pass, group.Profile);
+                    var groupProvider = _providerFactory.Create(group.Profile, groupThinking);
                     var groupPricing = RunPricing.From(group.Profile);
 
-                foreach (var batch in group.Batches)
-                {
-                    i++;
-                    cancellationToken.ThrowIfCancellationRequested();
+                    // Numbered up front. With batches finishing out of order there is
+                    // no running counter to increment, and a batch's number has to mean
+                    // "which batch" rather than "how many have finished".
+                    var offset = groupOffset;
+                    var numbered = group.Batches
+                        .Select((Batch, n) => (Batch, Number: offset + n + 1))
+                        .ToList();
 
-                    var outcome = await EnrichBatchAsync(
-                            batch, i + 1, groupProvider, group.Profile, groupPricing,
-                            config, runLog, cancellationToken)
+                    groupOffset += group.Batches.Count;
+
+                    await Parallel.ForEachAsync(
+                            numbered,
+                            new ParallelOptions
+                            {
+                                MaxDegreeOfParallelism = concurrency,
+                                CancellationToken = cancellationToken,
+                            },
+                            async (entry, ct) =>
+                            {
+                                var outcome = await EnrichBatchAsync(
+                                        entry.Batch, entry.Number, groupProvider, group.Profile,
+                                        groupPricing, config, groupThinking, runLog, ct)
+                                    .ConfigureAwait(false);
+
+                                int done, snapKnown, snapUnknown, snapFailed;
+                                decimal snapCost;
+                                List<StoredEnrichment>? checkpoint = null;
+
+                                lock (tally)
+                                {
+                                    results.AddRange(outcome.Results);
+                                    cost += outcome.Cost;
+                                    known += outcome.Known;
+                                    unknown += outcome.Unknown;
+                                    failed += outcome.Failed;
+
+                                    done = ++completed;
+                                    snapKnown = known;
+                                    snapUnknown = unknown;
+                                    snapFailed = failed;
+                                    snapCost = cost;
+
+                                    // Copied under the lock: serializing the live list
+                                    // while other batches append to it is exactly the
+                                    // race that would corrupt a checkpoint.
+                                    if (done % CheckpointEveryBatches == 0)
+                                    {
+                                        checkpoint = [.. results];
+                                    }
+                                }
+
+                                progress?.Report(done / (double)batches.Count);
+
+                                // One step per batch, with the running total. A run that
+                                // is killed after five minutes still shows exactly where
+                                // the money went, and a run that is merely slow can be
+                                // watched rather than guessed at.
+                                runLog.Step(
+                                    "enrichment.batch",
+                                    $"Batch {entry.Number} of {batches.Count} — {outcome.Known} enriched, "
+                                        + $"{outcome.Unknown} unknown, ${snapCost:F4} so far",
+                                    new Dictionary<string, object?>
+                                    {
+                                        ["batch"] = entry.Number,
+                                        ["batches"] = batches.Count,
+                                        ["done"] = done,
+
+                                        // NOT "items". That key is lifted into the run's
+                                        // library-wide count, so sending a batch size
+                                        // under it rewrote "42 items" to "10" on the
+                                        // first batch and left it there for the rest of
+                                        // the build.
+                                        ["batchSize"] = entry.Batch.Length,
+                                        ["model"] = group.Profile.Model,
+
+                                        // Cumulative, not this batch's. This is the key
+                                        // the progress panel reads, and it is the only
+                                        // thing that makes the enriched count climb
+                                        // while a run is going — without it the panel
+                                        // sat on "0 enriched" throughout.
+                                        ["enriched"] = snapKnown,
+                                        ["batchKnown"] = outcome.Known,
+                                        ["unknown"] = snapUnknown,
+                                        ["failed"] = snapFailed,
+                                        ["batchCostUsd"] = decimal.Round(outcome.Cost, 6),
+                                        ["runningCostUsd"] = decimal.Round(snapCost, 6),
+                                    });
+
+                                // A heartbeat in the server log. Without one, a pass over
+                                // a large library is fifteen minutes of silence between
+                                // "starting" and "finished", which is indistinguishable
+                                // from a hang.
+                                if (done % ProgressLogEveryBatches == 0 || done == batches.Count)
+                                {
+                                    _logger.LogInformation(
+                                        "Concierge: enrichment {Done}/{Batches} batches — {Known} enriched, "
+                                        + "{Unknown} unknown, {Failed} failed, ${Cost:F4} so far",
+                                        done,
+                                        batches.Count,
+                                        snapKnown,
+                                        snapUnknown,
+                                        snapFailed,
+                                        snapCost);
+                                }
+
+                                if (checkpoint is not null)
+                                {
+                                    await CheckpointAsync(
+                                            checkpointAsync, checkpoint, runLog, done, batches.Count, ct)
+                                        .ConfigureAwait(false);
+                                }
+                            })
                         .ConfigureAwait(false);
-
-                    results.AddRange(outcome.Results);
-                    cost += outcome.Cost;
-                    known += outcome.Known;
-                    unknown += outcome.Unknown;
-                    failed += outcome.Failed;
-
-                    progress?.Report((i + 1) / (double)batches.Count);
-
-                    // One step per batch, with the running total. A run that is killed
-                    // after five minutes still shows exactly where the money went, and
-                    // a run that is merely slow can be watched rather than guessed at.
-                    runLog.Step(
-                        "enrichment.batch",
-                        $"Batch {i + 1} of {batches.Count} — {outcome.Known} enriched, "
-                            + $"{outcome.Unknown} unknown, ${cost:F4} so far",
-                        new Dictionary<string, object?>
-                        {
-                            ["batch"] = i + 1,
-                            ["batches"] = batches.Count,
-
-                            // NOT "items". That key is lifted into the run's
-                            // library-wide count, so sending a batch size under it
-                            // rewrote "42 items" to "10" on the first batch and left
-                            // it there for the rest of the build.
-                            ["batchSize"] = batch.Length,
-                            ["model"] = group.Profile.Model,
-
-                            // Cumulative, not this batch's. This is the key the
-                            // progress panel reads, and it is the only thing that
-                            // makes the enriched count climb while a run is going —
-                            // without it the panel sat on "0 enriched" throughout.
-                            ["enriched"] = known,
-                            ["batchKnown"] = outcome.Known,
-                            ["unknown"] = unknown,
-                            ["failed"] = failed,
-                            ["batchCostUsd"] = decimal.Round(outcome.Cost, 6),
-                            ["runningCostUsd"] = decimal.Round(cost, 6),
-                        });
-
-                    // A heartbeat in the server log. Without one, a pass over a large
-                    // library is fifteen minutes of silence between "starting" and
-                    // "finished", which is indistinguishable from a hang.
-                    if ((i + 1) % ProgressLogEveryBatches == 0 || i + 1 == batches.Count)
-                    {
-                        _logger.LogInformation(
-                            "Concierge: enrichment batch {Batch}/{Batches} — {Known} enriched, {Unknown} unknown, "
-                            + "{Failed} failed, ${Cost:F4} so far",
-                            i + 1,
-                            batches.Count,
-                            known,
-                            unknown,
-                            failed,
-                            cost);
-                    }
-
-                    if ((i + 1) % CheckpointEveryBatches == 0)
-                    {
-                        await CheckpointAsync(checkpointAsync, results, runLog, i + 1, batches.Count, cancellationToken)
-                            .ConfigureAwait(false);
-                    }
-                }
                 }
             }
             catch (OperationCanceledException)
@@ -345,6 +398,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             ModelProfile profile,
             RunPricing pricing,
             PluginConfiguration config,
+            bool thinking,
             IIndexRunLog runLog,
             CancellationToken cancellationToken)
         {
@@ -399,6 +453,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             var cost = CallCost.ForChat(
                 profile, result.InputTokens, result.OutputTokens, result.CacheReadTokens, result.CacheWriteTokens);
 
+            var elapsed = stopwatch.Elapsed;
+
             IReadOnlyDictionary<int, Enrichment> parsed;
             try
             {
@@ -406,32 +462,67 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             }
             catch (FormatException ex)
             {
+                var reason = result.Truncated ? "truncated" : "unparseable";
+
+                // Logged before anything else: these tokens were billed whether or
+                // not the retry below rescues the batch, and a run log that hides a
+                // paid call is worse than one that shows a wasted one.
                 runLog.LlmCall(
-                    "enrichment", batchNumber, batch.Length, stopwatch.Elapsed, request, result,
-                    result.Truncated ? "truncated" : "unparseable", ex.Message,
+                    "enrichment", batchNumber, batch.Length, elapsed, request, result,
+                    reason, ex.Message,
                     provider.ModelId, profile.Provider.ToString(), pricing);
 
-                foreach (var document in batch)
+                // A reasoning model can spend its entire output budget thinking and
+                // return no JSON at all. Measured here on batch 6 of a regeneration:
+                // 12,000 output tokens of which 12,000 were reasoning, 158 seconds,
+                // and all ten items lost. One retry with reasoning turned down costs
+                // a fraction of a cent, and without it those items are simply
+                // dropped — which in a regeneration means dropped for good, because
+                // their previous answers have already been discarded.
+                var retried = thinking
+                    ? await RetryWithoutThinkingAsync(
+                            request, batch.Length, profile, cancellationToken)
+                        .ConfigureAwait(false)
+                    : null;
+
+                if (retried is null)
                 {
-                    runLog.ItemNotEnriched(document.FullTitle, result.Truncated ? "truncated" : "unparseable");
-                    runLog.ItemEnriched(Record(
-                        document,
+                    foreach (var document in batch)
+                    {
+                        runLog.ItemNotEnriched(document.FullTitle, reason);
+                        runLog.ItemEnriched(Record(
+                            document,
+                            batchNumber,
+                            reason,
+                            null,
+                            batch.Length > 0 ? cost / batch.Length : 0m));
+                    }
+
+                    _logger.LogWarning(
+                        "Concierge: enrichment batch {Batch} returned no usable JSON ({Reason}). "
+                        + "{Detail}",
                         batchNumber,
-                        result.Truncated ? "truncated" : "unparseable",
-                        null,
-                        batch.Length > 0 ? cost / batch.Length : 0m));
+                        result.Truncated ? "hit the output cap" : "unparseable",
+                        result.Truncated
+                            ? "Lower EnrichmentBatchSize or raise MaxOutputTokens — thinking counts against the same cap."
+                            : ex.Message);
+
+                    return new BatchOutcome(results, cost, 0, 0, batch.Length);
                 }
 
-                _logger.LogWarning(
-                    "Concierge: enrichment batch {Batch} returned no usable JSON ({Reason}). "
-                    + "{Detail}",
-                    batchNumber,
-                    result.Truncated ? "hit the output cap" : "unparseable",
-                    result.Truncated
-                        ? "Lower EnrichmentBatchSize or raise MaxOutputTokens — thinking counts against the same cap."
-                        : ex.Message);
+                // The wasted call is still billed; the retry is charged on top of it.
+                cost += retried.Cost;
+                result = retried.Result;
+                provider = retried.Provider;
+                elapsed = retried.Elapsed;
+                parsed = retried.Parsed;
 
-                return new BatchOutcome(results, cost, 0, 0, batch.Length);
+                _logger.LogInformation(
+                    "Concierge: enrichment batch {Batch} returned no usable JSON ({Reason}); "
+                    + "a retry with reasoning turned down recovered all {Items} item(s)",
+                    batchNumber,
+                    reason,
+                    batch.Length);
             }
 
             var known = 0;
@@ -484,12 +575,68 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             }
 
             runLog.LlmCall(
-                "enrichment", batchNumber, batch.Length, stopwatch.Elapsed, request, result,
+                "enrichment", batchNumber, batch.Length, elapsed, request, result,
                 result.Truncated ? "truncated" : "ok",
                 result.Truncated ? "output cap reached; later items in the batch were lost" : null,
                 provider.ModelId, profile.Provider.ToString(), pricing);
 
             return new BatchOutcome(results, cost, known, unknown, missing);
+        }
+
+        /// <summary>
+        /// Asks the same batch again with reasoning turned down, after a first call
+        /// came back with no usable JSON.
+        /// </summary>
+        /// <param name="request">The request that already failed, sent again unchanged.</param>
+        /// <param name="batchSize">How many items the response must cover.</param>
+        /// <param name="profile">The profile to retry on.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The recovered answer, or null if the retry did not help either.</returns>
+        /// <remarks>
+        /// Only worth attempting when the first call was allowed to think, because the
+        /// failure this recovers is reasoning eating the output cap. The prompt is not
+        /// changed: it is not the prompt that failed.
+        /// <para>
+        /// <b>A profile whose own thinking is set to On is not overridden here.</b>
+        /// <c>ThinkingResolved</c> lets an explicit profile setting win over the global
+        /// flag, and that is deliberate — a profile configured to think is a statement
+        /// about that model. The retry therefore rescues the common case, where the
+        /// profile inherits and a pass turned thinking on, and does nothing for a
+        /// profile pinned to On. Such a profile needs a smaller batch or a larger cap.
+        /// </para>
+        /// </remarks>
+        private async Task<RetryOutcome?> RetryWithoutThinkingAsync(
+            LlmRequest request,
+            int batchSize,
+            ModelProfile profile,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var provider = _providerFactory.Create(profile, globalEnableThinking: false);
+
+                var stopwatch = Stopwatch.StartNew();
+                var result = await provider.CompleteAsync(request, cancellationToken).ConfigureAwait(false);
+                stopwatch.Stop();
+
+                var parsed = EnrichmentParser.Parse(result.Text, batchSize);
+                var cost = CallCost.ForChat(
+                    profile,
+                    result.InputTokens,
+                    result.OutputTokens,
+                    result.CacheReadTokens,
+                    result.CacheWriteTokens);
+
+                return new RetryOutcome(parsed, result, provider, stopwatch.Elapsed, cost);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The retry is a second chance, not a guarantee. Its failure is already
+                // described by the first call's record, so it only needs logging.
+                _logger.LogWarning(
+                    ex, "Concierge: the reasoning-off retry for this batch did not help either");
+                return null;
+            }
         }
 
         /// <summary>
@@ -521,6 +668,21 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 enrichment?.Spoiler ?? false,
                 decimal.Round(share, 6));
         }
+
+        /// <summary>
+        /// What a reasoning-off retry recovered, with its own billing.
+        /// </summary>
+        /// <param name="Parsed">The answers, keyed by batch-local index.</param>
+        /// <param name="Result">The retry's raw result, for the run log.</param>
+        /// <param name="Provider">The provider it ran on; its model id is stored per item.</param>
+        /// <param name="Elapsed">How long the retry took.</param>
+        /// <param name="Cost">The retry's cost, charged on top of the wasted first call.</param>
+        private sealed record RetryOutcome(
+            IReadOnlyDictionary<int, Enrichment> Parsed,
+            LlmResult Result,
+            ILlmProvider Provider,
+            TimeSpan Elapsed,
+            decimal Cost);
 
         private sealed record BatchOutcome(
             List<StoredEnrichment> Results,

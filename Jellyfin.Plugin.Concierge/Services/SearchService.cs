@@ -213,7 +213,17 @@ namespace Jellyfin.Plugin.Concierge.Services
                 config.EnablePlanPass,
                 config.EnableRerankPass);
 
-            var degraded = lexicalOnly || string.IsNullOrEmpty(budget.Reason) ? null : budget.Reason;
+            // Collected by the paid passes when a provider refuses. Both of them treat
+            // a failure as "serve the free answer", which is right — but until this
+            // existed it was also completely silent: the exception became a warning in
+            // the server log, and because a call record is only added after a response
+            // comes back, the query log recorded no call, no error and $0.00. A search
+            // whose model layer was entirely down looked identical to a cheap one.
+            //
+            // Measured on this install: 41 consecutive HTTP 400s from the re-rank
+            // provider across three hours, and the only visible symptom was that
+            // results were worse.
+            string? passFailure = null;
 
             // ── Plan ────────────────────────────────────────────────────────────
             var plan = SearchPlan.Passthrough(query);
@@ -224,8 +234,14 @@ namespace Jellyfin.Plugin.Concierge.Services
                 && config.EnablePlanPass
                 && decision.MayCarryConstraints)
             {
-                plan = await RunPlanAsync(query, config, normalized, calls, cancellationToken)
+                (plan, var planError) = await RunPlanAsync(
+                        query, config, normalized, calls, cancellationToken)
                     .ConfigureAwait(false);
+
+                if (planError is not null)
+                {
+                    passFailure = "the planning model is not answering — " + planError;
+                }
             }
 
             // ── Retrieve ────────────────────────────────────────────────────────
@@ -255,6 +271,13 @@ namespace Jellyfin.Plugin.Concierge.Services
                     Reason = decision.Reason + ", but no clear keyword winner",
                 };
             }
+
+            // Computed here rather than beside the budget, because `lexicalOnly` is
+            // not final until the upgrade above has had its say. Reading it early
+            // meant an upgraded query reported no reason at all while quietly
+            // spending nothing.
+            var degraded = lexicalOnly || string.IsNullOrEmpty(budget.Reason) ? null : budget.Reason;
+            degraded ??= passFailure;
 
             if (!lexicalOnly)
             {
@@ -296,6 +319,7 @@ namespace Jellyfin.Plugin.Concierge.Services
                 if (documents.Count == shortlist.Count)
                 {
                     var outcome = await RunRerankAsync(
+                            e => degraded ??= "the re-ranking model is not answering — " + e,
                             query, documents, config, normalized, calls, cancellationToken)
                         .ConfigureAwait(false);
 
@@ -406,7 +430,23 @@ namespace Jellyfin.Plugin.Concierge.Services
             }
         }
 
-        private async Task<SearchPlan> RunPlanAsync(
+        /// <summary>
+        /// One line naming what a provider refused, short enough for a status strip.
+        /// </summary>
+        /// <param name="ex">The failure.</param>
+        /// <returns>The first line of its message.</returns>
+        /// <remarks>
+        /// The message only, never the stack: this reaches the search page and the
+        /// query log, and a provider's own wording ("Google API returned 400") is the
+        /// part that tells somebody which setting to go and change.
+        /// </remarks>
+        private static string Describe(Exception ex)
+        {
+            var line = (ex.Message ?? "the provider failed").Split('\n')[0].Trim();
+            return line.Length > 160 ? line[..160] + "\u2026" : line;
+        }
+
+        private async Task<(SearchPlan Plan, string? Error)> RunPlanAsync(
             string query,
             PluginConfiguration config,
             ModelProfiles.NormalizedProfiles normalized,
@@ -433,14 +473,14 @@ namespace Jellyfin.Plugin.Concierge.Services
                 stopwatch.Stop();
 
                 calls.Add(Record(QueryPass.Plan, profile, provider.ModelId, result, stopwatch));
-                return PlanParser.Parse(result.Text, query);
+                return (PlanParser.Parse(result.Text, query), null);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // A failed plan is not a failed search — retrieval works perfectly well
                 // from the raw query.
                 _logger.LogWarning(ex, "Concierge: the plan pass failed; searching on the raw query");
-                return SearchPlan.Passthrough(query);
+                return (SearchPlan.Passthrough(query), Describe(ex));
             }
         }
 
@@ -515,6 +555,7 @@ namespace Jellyfin.Plugin.Concierge.Services
         private const int MinimumRerankedResults = 3;
 
         private async Task<RerankOutcome?> RunRerankAsync(
+            Action<string> reportFailure,
             string query,
             IReadOnlyList<ItemDocument> shortlist,
             PluginConfiguration config,
@@ -571,6 +612,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             {
                 // The fused order is a perfectly good answer. Slightly worse, free.
                 _logger.LogWarning(ex, "Concierge: the re-rank pass failed; serving the fused order");
+                reportFailure(Describe(ex));
                 return null;
             }
         }
@@ -731,7 +773,16 @@ namespace Jellyfin.Plugin.Concierge.Services
                 response.DurationMs,
                 response.Degraded,
                 null,
-                response.Hits.Take(5).Select(h => h.Name).ToList());
+                response.Hits.Take(5).Select(h => h.Name).ToList(),
+
+                // These three are optional parameters, so leaving them off compiled
+                // fine and logged a constant. Every one of 264 entries read
+                // "Reranked: false" while 196 of them had paid for a re-rank call,
+                // which makes the query log actively misleading about the one field
+                // that says whether a search used the expensive path.
+                response.Cached,
+                response.Reranked,
+                response.Quotes?.Count ?? 0);
 
             return _queryLog.RecordAsync(record, cancellationToken);
         }

@@ -259,7 +259,44 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             try
             {
                 Directory.CreateDirectory(_directory);
-                await WriteJsonAsync(EnrichmentFile, enrichment, cancellationToken).ConfigureAwait(false);
+
+                // Merged by item, never replaced wholesale. What arrives here is one
+                // run's results, and a run covers whatever subset it was asked for —
+                // so writing it directly discards every item the run did not touch.
+                //
+                // That is not hypothetical. A regeneration over a 5,272-item library
+                // was stopped 14 batches in and this method had already reduced a
+                // 322-entry store to 131, losing 191 answers that had been paid for
+                // across earlier runs. Nothing else on disk held them: docs.json
+                // stores documents stripped of enrichment, and only the flattened
+                // row text in rows.json happened to preserve the themes and asks.
+                //
+                // Upserting also gives a regeneration exactly the semantics it wants
+                // — a fresh answer replaces the old one for that item — without
+                // touching anything it did not re-ask.
+                var existing = await ReadJsonAsync<List<StoredEnrichment>>(EnrichmentFile, cancellationToken)
+                    .ConfigureAwait(false);
+
+                var merged = new Dictionary<Guid, StoredEnrichment>();
+                foreach (var entry in existing ?? [])
+                {
+                    merged[entry.ItemId] = entry;
+                }
+
+                foreach (var entry in enrichment)
+                {
+                    merged[entry.ItemId] = entry;
+                }
+
+                // Entries for items no longer in the library are kept. They are about
+                // 450 bytes each, they cost real money to produce, and an item that
+                // vanished from a scan is far more often a mount that did not come up
+                // than a deletion. DeleteAsync is the deliberate way to clear this.
+                await WriteJsonAsync(
+                        EnrichmentFile,
+                        merged.Values.ToList(),
+                        cancellationToken)
+                    .ConfigureAwait(false);
             }
             finally
             {

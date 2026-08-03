@@ -194,6 +194,27 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public int EnrichmentBatchSize { get; set; } = 12;
 
         /// <summary>
+        /// Gets or sets how many enrichment batches may be in flight at once.
+        /// </summary>
+        /// <remarks>
+        /// <b>One by default, so an existing install behaves exactly as it did.</b>
+        /// Enrichment is wall-clock bound on the model, not on anything local:
+        /// measured here at 55 seconds per batch of ten, which is eight hours for a
+        /// 5,272-item library and about twenty-six minutes for the 272 films and shows
+        /// in it. Batches are independent — nothing in one informs another — so the
+        /// only reason this was serial is that nobody had made it otherwise.
+        /// <para>
+        /// Raise it and the pass divides almost linearly: four in flight is roughly two
+        /// hours, eight is roughly one. The ceiling is the provider's rate limit rather
+        /// than anything here, and past it the retry backoff makes the whole pass
+        /// slower rather than faster, so raise this in steps and watch the run log for
+        /// retries. It does not change what anything costs: the same batches are sent
+        /// either way.
+        /// </para>
+        /// </remarks>
+        public int EnrichmentConcurrency { get; set; } = 1;
+
+        /// <summary>
         /// Gets or sets how many generated phrasings are kept per item.
         /// </summary>
         /// <remarks>

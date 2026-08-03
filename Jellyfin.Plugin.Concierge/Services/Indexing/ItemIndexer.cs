@@ -32,7 +32,12 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
         int Embedded,
         int Reused,
         int Enriched,
-        decimal CostUsd);
+        decimal CostUsd,
+
+        /* True when another build already held the single-flight gate and this call
+         * did nothing at all. Distinct from a build that ran and found no work: that
+         * one costs a scan and writes a generation, this one never started. */
+        bool Skipped = false);
 
     /// <summary>
     /// Builds the index: scan, enrich what changed, embed what changed, write.
@@ -41,6 +46,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
     {
         private readonly ILibraryScanner _scanner;
         private readonly ILibraryManager _libraryManager;
+
+        /// <summary>Held for the whole of a build, so only one ever runs at a time.</summary>
+        private readonly SemaphoreSlim _buildGate = new(1, 1);
         private readonly IIndexStore _store;
         private readonly EnrichmentService _enrichment;
         private readonly IEmbeddingProviderFactory _embeddingFactory;
@@ -76,16 +84,59 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
         /// Whether to ignore every cached enrichment and vector and generate a new
         /// index from source library metadata.
         /// </param>
+        /// <param name="enrichOnly">
+        /// Whether to stop after banking enrichment, leaving the live index exactly as
+        /// it was. Nothing is embedded and no generation is written.
+        /// </param>
         /// <returns>What the build did.</returns>
         public async Task<IndexBuildResult> BuildAsync(
             PluginConfiguration config,
             string trigger,
             IProgress<double>? progress,
             CancellationToken cancellationToken,
-            bool regenerate = false)
+            bool regenerate = false,
+            bool enrichOnly = false)
         {
             ArgumentNullException.ThrowIfNull(config);
 
+            // Single-flight across every caller, because there are now two scheduled
+            // tasks that can reach this. Both write the enrichment store, and the
+            // ordinary build also rewrites the index and advances the generation
+            // counter — two of those at once race on that write, and whichever
+            // finished second would silently publish over the other.
+            //
+            // Refused rather than queued: these are long, scheduled, repeating jobs.
+            // Waiting would stack up an hours-long backlog nobody asked for, and the
+            // next scheduled run does the same work anyway.
+            if (!await _buildGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogInformation(
+                    "Concierge: a Concierge build is already running, so the {Trigger} run was skipped. "
+                    + "It will run at its next scheduled time.",
+                    trigger);
+
+                return new IndexBuildResult(Guid.Empty, 0, 0, 0, 0, 0, 0m, Skipped: true);
+            }
+
+            try
+            {
+                return await BuildCoreAsync(config, trigger, progress, cancellationToken, regenerate, enrichOnly)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                _buildGate.Release();
+            }
+        }
+
+        private async Task<IndexBuildResult> BuildCoreAsync(
+            PluginConfiguration config,
+            string trigger,
+            IProgress<double>? progress,
+            CancellationToken cancellationToken,
+            bool regenerate,
+            bool enrichOnly)
+        {
             var runLog = _runLogs.Begin(trigger, new Dictionary<string, object?>
             {
                 ["includeEpisodes"] = config.IncludeEpisodes,
@@ -96,6 +147,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                 ["maxOutputTokens"] = config.MaxOutputTokens,
                 ["enableThinking"] = config.EnableThinking,
                 ["regenerate"] = regenerate,
+                ["enrichOnly"] = enrichOnly,
+                ["enrichmentConcurrency"] = config.EnrichmentConcurrency,
             });
 
             var report = new Progress<double>(p =>
@@ -106,7 +159,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
 
             try
             {
-                var result = await RunAsync(config, runLog, report, cancellationToken, regenerate)
+                var result = await RunAsync(config, runLog, report, cancellationToken, regenerate, enrichOnly)
                     .ConfigureAwait(false);
                 runLog.Complete();
                 return result;
@@ -130,7 +183,8 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             IIndexRunLog runLog,
             IProgress<double> progress,
             CancellationToken cancellationToken,
-            bool regenerate)
+            bool regenerate,
+            bool enrichOnly)
         {
             var embeddingProfile = EmbeddingProfiles.Resolve(config, config.EmbeddingProfileId);
             var embedder = _embeddingFactory.Create(embeddingProfile);
@@ -230,6 +284,48 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             }
 
             progress.Report(60);
+
+            // 3b. Enrichment-only runs stop here, with the index left exactly as it
+            //     was. Everything below this point rewrites state.json, docs.json,
+            //     rows.json and vectors.bin and advances the generation counter, and a
+            //     long enrichment pass has no business doing any of that.
+            //
+            //     This is what makes episode enrichment safe to run on its own
+            //     schedule. Episodes are the expensive, slow, low-yield half — eight
+            //     hours and 45% unknown-to-model, measured — and pinning the live index
+            //     behind them means a search index that cannot be refreshed for a
+            //     working day. Banking the answers and letting the next ordinary build
+            //     pick them up by source hash separates "paying the model" from
+            //     "publishing an index", which were only ever one step by accident.
+            if (enrichOnly)
+            {
+                await _store.SaveEnrichmentAsync(keep, cancellationToken).ConfigureAwait(false);
+
+                var banked = keep.Count(e => e.Enrichment is { IsEmpty: false });
+
+                runLog.Step(
+                    "enrichment.banked",
+                    $"{banked} enriched item(s) stored; the index was left untouched",
+                    new Dictionary<string, object?>
+                    {
+                        ["enriched"] = banked,
+                        ["stored"] = keep.Count,
+                        ["costUsd"] = cost,
+                        ["indexWritten"] = false,
+                    });
+
+                _logger.LogInformation(
+                    "Concierge: enrichment-only run finished — {Banked} item(s) banked for ${Cost:F4}. "
+                    + "The search index is unchanged; the next ordinary build will pick these up.",
+                    banked,
+                    cost);
+
+                progress.Report(100);
+
+                // No rows, nothing embedded, no generation: the honest report of a run
+                // that deliberately produced no index.
+                return new IndexBuildResult(runLog.RunId, documents.Count, 0, 0, 0, banked, cost);
+            }
 
             // 4. Attach enrichment and lay out the vector rows.
             var byItem = keep.ToDictionary(e => e.ItemId);
