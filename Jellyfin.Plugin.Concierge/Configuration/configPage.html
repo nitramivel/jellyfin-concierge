@@ -10,6 +10,23 @@
         <div class="content-primary">
 
             <style>
+                /* Jellyfin caps every form at 54em above 50em wide, and this whole
+                   page is one form — which is why the Models tab was cut off and the
+                   model dropdowns were squeezed into a corner of a very wide screen.
+                   Scoped to this page's id so no other plugin's settings move.
+
+                   Raised rather than removed. An unbounded form on an ultrawide
+                   monitor turns every description into a single 200-character line,
+                   which is worse than the problem being fixed: 100em is roughly twice
+                   the room with prose still readable. */
+                #ConciergeConfigPage form { max-width: 100em; }
+
+                /* Same story one level down: .selectContainer carries its own 44em
+                   cap, which is generous for a settings row and cramped for a table
+                   cell holding a model name like "gpt-5.6-luna (OpenAI) — in use". */
+                #ConciergeConfigPage .conciergePasses .selectContainer,
+                #ConciergeConfigPage .conciergePasses select { max-width: none; }
+
                 .conciergeSection { margin: 2em 0 1em 0; }
                 .conciergeSection > h3 { margin-bottom: 0.2em; }
                 .conciergeSectionNote { opacity: 0.75; margin-bottom: 1em; }
@@ -100,6 +117,19 @@
 
                 /* One long scroll is how "which model runs which pass" ended up
                    below two profile editors, where nobody found it. */
+                /* Raised, not removed. A lone dropdown stretched across a hundred
+                   ems is a worse control than a cramped one — the eye has to travel
+                   the whole width to find out nothing is there. */
+                #ConciergeConfigPage .selectContainer,
+                #ConciergeConfigPage .inputContainer { max-width: 60em; }
+
+                /* Prose keeps a reading measure regardless. The extra width exists
+                   for tables and card rows, which use it; a description set 100em
+                   wide is one very long line nobody finishes. */
+                #ConciergeConfigPage .fieldDescription,
+                #ConciergeConfigPage .conciergeSectionNote,
+                #ConciergeConfigPage .conciergePassWhen { max-width: 62em; }
+
                 .conciergeTabs {
                     display: flex; flex-wrap: wrap; gap: 0.3em;
                     margin: 1.4em 0 0.4em; border-bottom: 1px solid rgba(127,127,127,0.3);
@@ -127,7 +157,12 @@
                     border-bottom: 1px solid rgba(127,127,127,0.14);
                 }
                 .conciergePasses td:first-child { white-space: nowrap; font-weight: 600; }
-                .conciergePasses select { width: 100%; max-width: 22em; }
+                .conciergePasses select { width: 100%; }
+
+                /* The model column is the one people came to this table to change, so
+                   it gets a third of the width rather than whatever is left over. */
+                .conciergePasses td:last-child, .conciergePasses th:last-child { width: 34%; }
+                .conciergePasses td:first-child, .conciergePasses th:first-child { width: 9em; }
                 .conciergePassWhen { font-size: 0.86em; opacity: 0.68; margin-top: 0.2em; }
                 @media (max-width: 60em) {
                     .conciergePasses, .conciergePasses tbody, .conciergePasses tr, .conciergePasses td { display: block; width: 100%; }
