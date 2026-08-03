@@ -422,19 +422,19 @@ namespace Jellyfin.Plugin.Concierge.Tests
         }
 
         /// <summary>
-        /// The toggle is an icon in the search box, in the slot Jellyseerr's used.
+        /// The toggle is an icon in the search box, centred on the field.
         /// </summary>
         /// <remarks>
-        /// The position values are copied from Jellyfin Enhanced's own rule rather
-        /// than picked: the two are alternatives for the same corner of the same box,
-        /// so anything hand-chosen sits a few pixels off it.
+        /// Jellyfin Enhanced positions its icon at 68% because it is a 50px image with
+        /// a drop shadow; copying that number for a round button put ours visibly low.
+        /// Borrowing a proven corner was right, borrowing the offset inside it was not.
         /// </remarks>
         [Fact]
-        public void TheModeToggleIsAnIconWhereTheJellyseerrIconSits()
+        public void TheModeToggleIsAnIconCentredInTheSearchBox()
         {
             var code = WithoutComments(Script);
 
-            Assert.Contains("right:10px;top:68%", code, StringComparison.Ordinal);
+            Assert.Contains("right:10px;top:50%", code, StringComparison.Ordinal);
             Assert.Contains("translateY(-50%)", code, StringComparison.Ordinal);
 
             // A shipped font glyph, so there is no asset to host and it takes the
@@ -453,6 +453,65 @@ namespace Jellyfin.Plugin.Concierge.Tests
         /// It is also a setting, because that icon is their Seerr-only filter and
         /// taking a control away should not need a release to undo.
         /// </remarks>
+        /// <summary>
+        /// Off means off: no row, no request, nothing spent.
+        /// </summary>
+        /// <remarks>
+        /// A toggle that leaves its results on screen is a toggle that does not appear
+        /// to work. This one also decides whether a search costs money, so the quiet
+        /// version would be the expensive one.
+        /// </remarks>
+        [Fact]
+        public void TheToggleGatesTheSearchEntirelyRatherThanJustItsLayout()
+        {
+            var onInput = WithoutComments(Between(Script, "function onInput(", "function attach("));
+            var runNow = WithoutComments(Between(Script, "function runNow(", "function onInput("));
+
+            Assert.Contains("!modeOn()", onInput, StringComparison.Ordinal);
+            Assert.Contains("clearResults()", onInput, StringComparison.Ordinal);
+            Assert.Contains("!modeOn()", runNow, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// "No results found" is hidden when Concierge has results.
+        /// </summary>
+        /// <remarks>
+        /// That line is a statement about Jellyfin's substring search, and it is false
+        /// the moment Concierge has answers on the same page. It is hidden with our own
+        /// class and remembered like every other hidden section, so it returns as soon
+        /// as the row empties or the toggle goes off.
+        /// </remarks>
+        /// <summary>
+        /// Concierge is on until somebody turns it off.
+        /// </summary>
+        /// <remarks>
+        /// This default flipped when the toggle stopped being about layout and started
+        /// gating the search. Off-by-default used to mean "results appear as an
+        /// ordinary row"; it would now mean a freshly installed plugin does nothing at
+        /// all until somebody finds an unlabelled icon and presses it.
+        /// </remarks>
+        [Fact]
+        public void ConciergeIsOnUnlessItHasBeenTurnedOff()
+        {
+            var modeOn = WithoutComments(Between(Script, "function modeOn(", "function setMode("));
+
+            Assert.Contains("!== '0'", modeOn, StringComparison.Ordinal);
+            Assert.DoesNotContain("=== '1'", modeOn, StringComparison.Ordinal);
+
+            // Storage being unavailable must not disable the plugin either.
+            Assert.Contains("return true;", modeOn, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheNoResultsMessageIsHiddenWhileConciergeHasAnswers()
+        {
+            var apply = WithoutComments(Between(Script, "function applyMode(", "function restoreSections("));
+
+            Assert.Contains(".noItemsMessage", apply, StringComparison.Ordinal);
+            Assert.Contains("concierge-hidden", apply, StringComparison.Ordinal);
+            Assert.Contains("hiddenSections.push(empty)", apply, StringComparison.Ordinal);
+        }
+
         [Fact]
         public void TheJellyseerrIconIsHiddenByStyleAndOnlyWhenAskedFor()
         {

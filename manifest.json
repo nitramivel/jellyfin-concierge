@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.27.0.0",
-        "changelog": "Themes and moments per item are settings now, like phrasings \u2014 themes especially, since the Vibe row is built from them alone and they are the only place a mood query has to land. Episodes can run on their own model and their own thinking mode: 45% of them come back unknown on this library and there are twenty times as many, so paying a flagship model per episode to say it does not know is the most expensive way to learn nothing. The Vibe row now reads as a sentence with its decade in it rather than a comma dump. Episodes live under their show in the Library tab, carry their series name everywhere, and a running build can be stopped from the settings page. Folds in 0.19.0.0 through 0.26.0.0.",
+        "version": "0.28.0.0",
+        "changelog": "The search-box toggle turns Concierge off rather than rearranging it \u2014 no row, no request, nothing spent \u2014 and is on unless you turn it off. Jellyfin's \"no results found\" line is hidden while Concierge has matches, because it is false. The icon is centred in the search box. Themes and moments per item are settings, episodes can run on their own model and thinking mode, and the Vibe row reads as a sentence with its decade in it. Episodes live under their show in the Library tab. Folds in 0.19.0.0 through 0.27.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.27.0.0/concierge_0.27.0.0.zip",
-        "checksum": "0a8e147ebac1d0d56d5f2fb8501cd148",
-        "timestamp": "2026-08-02T23:50:54Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.28.0.0/concierge_0.28.0.0.zip",
+        "checksum": "26fb9c63b81b0dc0e8ba0cc75a8b8434",
+        "timestamp": "2026-08-03T05:38:25Z"
       },
       {
         "version": "0.18.0.0",

@@ -147,7 +147,7 @@
          * theme's colour instead of being a fixed-colour PNG. */
         '#searchPage .searchFields .inputContainer,' +
         '#searchPage .searchFields{position:relative;}' +
-        '#concierge-toggle{position:absolute;right:10px;top:68%;' +
+        '#concierge-toggle{position:absolute;right:10px;top:50%;' +
         'transform:translateY(-50%);z-index:10;display:inline-flex;align-items:center;' +
         'justify-content:center;width:2em;height:2em;padding:0;border:0;border-radius:50%;' +
         'background:transparent;color:inherit;cursor:pointer;opacity:.55;' +
@@ -318,13 +318,20 @@
         return null;
     }
 
+    /* On unless explicitly turned off.
+     *
+     * This flipped when the toggle stopped being about layout and started gating the
+     * search itself. Defaulting to off used to mean "results appear as an ordinary
+     * row"; it would now mean a freshly installed plugin does nothing whatsoever
+     * until somebody finds an unlabelled icon and presses it.
+     *
+     * The same reasoning covers storage being unavailable: private browsing must not
+     * silently disable the plugin. */
     function modeOn() {
         try {
-            return window.localStorage.getItem(MODE_KEY) === '1';
+            return window.localStorage.getItem(MODE_KEY) !== '0';
         } catch (e) {
-            // Private browsing, or storage disabled. The mode simply does not
-            // persist; it must not take the search box down with it.
-            return false;
+            return true;
         }
     }
 
@@ -352,6 +359,21 @@
         if (!wanted) {
             restoreSections();
             return;
+        }
+
+        /* "Sorry! No results found" is a statement about Jellyfin's substring
+         * search, and it is false the moment Concierge has answers on the same
+         * page. Two of them, in fact — the phrase describing a film is exactly the
+         * search native cannot do, so this pairing is the normal case rather than
+         * an edge one.
+         *
+         * Hidden with our own class and remembered like every other section, so it
+         * comes back the instant the row is empty or the toggle is off. */
+        var empty = page.querySelector('.noItemsMessage');
+
+        if (empty && !empty.classList.contains('concierge-hidden')) {
+            empty.classList.add('concierge-hidden');
+            hiddenSections.push(empty);
         }
 
         Array.prototype.forEach.call(page.querySelectorAll('.verticalSection'), function (s) {
@@ -406,9 +428,31 @@
             button.setAttribute('aria-pressed', next ? 'true' : 'false');
 
             var current = searchPage();
-            if (current) {
-                applyMode(current);
+            if (!current) {
+                return;
             }
+
+            // Act on the query already on screen. Waiting for the next keystroke
+            // makes the button look broken for as long as somebody stares at it.
+            var input = current.querySelector(
+                '#searchTextInput, .searchfields-txtSearch, input[type="search"]');
+            var query = input ? input.value.trim() : '';
+
+            if (!next) {
+                clearResults();
+                applyMode(current);
+                return;
+            }
+
+            if (query.length >= MIN_QUERY_LENGTH) {
+                lastQuery = query;
+                renderWaiting();
+                runPreview(query);
+                run(query);
+                return;
+            }
+
+            applyMode(current);
         });
 
         fields.appendChild(button);
@@ -859,6 +903,10 @@
         clearTimeout(timer);
         clearTimeout(previewTimer);
 
+        if (!modeOn()) {
+            return;
+        }
+
         if (query.length < MIN_QUERY_LENGTH) {
             return;
         }
@@ -884,9 +932,11 @@
         inFlight = null;
         inFlightQuery = '';
 
-        if (query.length < MIN_QUERY_LENGTH) {
-            // Below the threshold nothing is coming, so there is nothing to be
-            // pending about — take the row away rather than leaving it dimmed.
+        // Off means off. Not "shown differently" — no row, no request, nothing
+        // spent. A toggle that leaves its results on screen is a toggle that does
+        // not appear to work, and this one also decides whether a search costs
+        // money, so the quiet version would be the expensive one.
+        if (!modeOn() || query.length < MIN_QUERY_LENGTH) {
             clearResults();
             return;
         }
