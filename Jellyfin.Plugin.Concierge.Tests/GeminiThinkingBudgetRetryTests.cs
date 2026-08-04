@@ -73,6 +73,15 @@ namespace Jellyfin.Plugin.Concierge.Tests
         private static readonly LlmRequest Request =
             new("system", "prefix", "suffix", 800, ResponseShape.Rerank);
 
+        private static int? Budget(string body)
+        {
+            using var document = JsonDocument.Parse(body);
+            var config = document.RootElement.GetProperty("generationConfig");
+            return config.TryGetProperty("thinkingConfig", out var thinking)
+                ? thinking.GetProperty("thinkingBudget").GetInt32()
+                : null;
+        }
+
         private static bool SendsBudget(string body)
         {
             using var document = JsonDocument.Parse(body);
@@ -81,7 +90,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
         }
 
         [Fact]
-        public async Task AModelThatRefusesAZeroBudget_IsAskedAgainWithoutOne()
+        public async Task AModelThatRefusesAZeroBudget_StillAnswers()
         {
             var handler = new RecordingHandler(
                 (HttpStatusCode.BadRequest, Refusal),
@@ -94,8 +103,11 @@ namespace Jellyfin.Plugin.Concierge.Tests
 
             Assert.Equal("answer", result.Text);
             Assert.Equal(2, handler.Bodies.Count);
-            Assert.True(SendsBudget(handler.Bodies[0]), "the first attempt should still ask for no thinking");
-            Assert.False(SendsBudget(handler.Bodies[1]), "the retry must drop thinkingConfig entirely");
+            Assert.Equal(0, Budget(handler.Bodies[0]));
+
+            // The retry concedes as little as it can: the smallest budget the model
+            // might take, not an open invitation to reason.
+            Assert.True(Budget(handler.Bodies[1]) > 0);
         }
 
         [Fact]
@@ -113,10 +125,10 @@ namespace Jellyfin.Plugin.Concierge.Tests
 
             await provider.CompleteAsync(Request, CancellationToken.None);
 
-            // One call, and it never mentions the budget again. Otherwise every query
-            // for the life of the process pays for a failure already known about.
+            // One call, and it does not go back to asking for zero. Otherwise every
+            // query for the life of the process pays for a failure already known about.
             Assert.Single(handler.Bodies);
-            Assert.False(SendsBudget(handler.Bodies[0]));
+            Assert.True(Budget(handler.Bodies[0]) > 0);
         }
 
         [Fact]
@@ -157,6 +169,46 @@ namespace Jellyfin.Plugin.Concierge.Tests
 
             Assert.Single(handler.Bodies);
             Assert.False(SendsBudget(handler.Bodies[0]));
+        }
+
+        [Fact]
+        public async Task AModelThatRefusesZero_IsOfferedTheSmallestBudgetBeforeGivingUp()
+        {
+            // The step that was missing. Dropping thinkingConfig entirely is not
+            // "thinking off", it is "think as much as you like" — measured on
+            // gemini-3.6-flash as 1,178 of 1,445 output tokens and 12.5s a re-rank.
+            var handler = new RecordingHandler(
+                (HttpStatusCode.BadRequest, Refusal),
+                (HttpStatusCode.OK, Ok));
+
+            using var client = new HttpClient(handler);
+            var provider = new GoogleProvider(client, "gemini-3.6-flash", "key", null, false, NoDelay);
+
+            await provider.CompleteAsync(Request, CancellationToken.None);
+
+            Assert.Equal(2, handler.Bodies.Count);
+            Assert.Equal(0, Budget(handler.Bodies[0]));
+            Assert.NotNull(Budget(handler.Bodies[1]));
+            Assert.True(Budget(handler.Bodies[1]) > 0, "the retry should ask for the least, not for none of the limit");
+        }
+
+        [Fact]
+        public async Task OnlyWhenTheSmallestIsAlsoRefused_IsTheFieldDropped()
+        {
+            var handler = new RecordingHandler(
+                (HttpStatusCode.BadRequest, Refusal),
+                (HttpStatusCode.BadRequest, Refusal),
+                (HttpStatusCode.OK, Ok));
+
+            using var client = new HttpClient(handler);
+            var provider = new GoogleProvider(client, "gemini-3.6-flash", "key", null, false, NoDelay);
+
+            await provider.CompleteAsync(Request, CancellationToken.None);
+
+            Assert.Equal(3, handler.Bodies.Count);
+            Assert.Equal(0, Budget(handler.Bodies[0]));
+            Assert.True(Budget(handler.Bodies[1]) > 0);
+            Assert.Null(Budget(handler.Bodies[2]));
         }
 
         [Fact]

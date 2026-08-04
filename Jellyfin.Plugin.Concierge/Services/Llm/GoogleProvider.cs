@@ -29,12 +29,32 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         private readonly Uri _endpoint;
         private readonly bool _enableThinking;
 
+        /// <summary>Ask for no reasoning at all. What most Gemini models accept.</summary>
+        private const int BudgetZero = 0;
+
+        /// <summary>Ask for the least reasoning a model that refuses zero will take.</summary>
+        private const int BudgetMinimum = 1;
+
+        /// <summary>Send nothing and let the model reason as much as it likes.</summary>
+        private const int BudgetOmitted = 2;
+
         /// <summary>
-        /// Set once a model has refused <c>thinkingBudget: 0</c> and answered without
-        /// it, so the cost of having asked is one failed call rather than one per
-        /// query for as long as that profile is selected.
+        /// The smallest positive budget to try when zero is refused.
         /// </summary>
-        private volatile bool _thinkingBudgetRejected;
+        /// <remarks>
+        /// A guess, and deliberately a cheap one to be wrong about: if this value is
+        /// itself rejected the escalation simply drops the field on the next attempt,
+        /// which is where it used to go directly. The point is to try the state in
+        /// between before giving up on the setting entirely.
+        /// </remarks>
+        private const int MinimumThinkingBudget = 128;
+
+        /// <summary>
+        /// How this model has agreed to be asked for less reasoning, learned from what
+        /// it has refused. Only ever moves up, and only after an attempt has actually
+        /// worked.
+        /// </summary>
+        private volatile int _thinkingLevel = BudgetZero;
         private readonly TimeSpan _initialRetryDelay;
 
         /// <param name="httpClient">The HTTP client.</param>
@@ -86,7 +106,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 return ParseResponse(document.RootElement);
             }
             catch (HttpRequestException ex)
-                when (!_enableThinking && !_thinkingBudgetRejected && IsBadRequest(ex.Message))
+                when (!_enableThinking && _thinkingLevel < BudgetOmitted && IsBadRequest(ex.Message))
             {
                 // Not every Gemini model can be told not to think, and the ones that
                 // cannot reject the whole request rather than ignoring the field. That
@@ -97,8 +117,35 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 // So: ask again without the budget and let the model reason if it must.
                 // Thinking costs money and latency, but a model that answers is worth
                 // more than a setting that is obeyed.
-                var body = await SendWithRetriesAsync(request, cancellationToken, omitThinkingConfig: true)
-                    .ConfigureAwait(false);
+                // Escalate one step at a time rather than jumping to "reason freely".
+                // Measured on gemini-3.6-flash, which refuses a zero budget: given no
+                // thinkingConfig at all it spent 1,178 of 1,445 output tokens thinking
+                // on a re-rank, 12.5s at the median against 2.5s for a model that
+                // accepts zero. "As little as this model allows" and "as much as it
+                // likes" are very different answers to the same setting.
+                string? body = null;
+                var reached = _thinkingLevel;
+
+                for (var level = _thinkingLevel + 1; level <= BudgetOmitted; level++)
+                {
+                    try
+                    {
+                        body = await SendWithRetriesAsync(request, cancellationToken, level)
+                            .ConfigureAwait(false);
+                        reached = level;
+                        break;
+                    }
+                    catch (HttpRequestException retry)
+                        when (level < BudgetOmitted && IsBadRequest(retry.Message))
+                    {
+                        // Refused this step too; try the next one down.
+                    }
+                }
+
+                if (body is null)
+                {
+                    throw;
+                }
 
                 // Latched only now, after the retry has actually worked. A 400 has many
                 // causes and Gemini's message names none of them — if the retry fails
@@ -107,7 +154,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 // the first. The cost of not latching is one extra failed call per
                 // query; the cost of latching wrongly is a setting that silently stops
                 // meaning anything.
-                _thinkingBudgetRejected = true;
+                _thinkingLevel = reached;
 
                 using var document = JsonDocument.Parse(body);
                 return ParseResponse(document.RootElement);
@@ -138,9 +185,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         private Task<string> SendWithRetriesAsync(
             LlmRequest request,
             CancellationToken cancellationToken,
-            bool omitThinkingConfig = false)
+            int? thinkingLevel = null)
         {
-            var payload = BuildRequestBody(request, omitThinkingConfig);
+            var payload = BuildRequestBody(request, thinkingLevel ?? _thinkingLevel);
 
             return TransientHttpRetry.SendAsync(
                 _httpClient,
@@ -156,7 +203,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 cancellationToken);
         }
 
-        private object BuildRequestBody(LlmRequest request, bool omitThinkingConfig = false)
+        private object BuildRequestBody(LlmRequest request, int thinkingLevel)
         {
             return new
             {
@@ -177,7 +224,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                     },
                 },
                 safetySettings = SafetySettings,
-                generationConfig = BuildGenerationConfig(request, omitThinkingConfig),
+                generationConfig = BuildGenerationConfig(request, thinkingLevel),
             };
         }
 
@@ -240,7 +287,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             return [.. parts];
         }
 
-        private object BuildGenerationConfig(LlmRequest request, bool omitThinkingConfig)
+        private object BuildGenerationConfig(LlmRequest request, int thinkingLevel)
         {
             var config = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
@@ -262,9 +309,12 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             // setting is a yes/no. When disabled, budget 0 turns it off; note the Pro
             // models refuse a zero budget and return 400, which is the API saying the
             // same thing the plan does: leave it on for those.
-            if (!_enableThinking && !omitThinkingConfig && !_thinkingBudgetRejected)
+            if (!_enableThinking && thinkingLevel != BudgetOmitted)
             {
-                config["thinkingConfig"] = new { thinkingBudget = 0 };
+                config["thinkingConfig"] = new
+                {
+                    thinkingBudget = thinkingLevel == BudgetZero ? 0 : MinimumThinkingBudget,
+                };
             }
 
             return config;
