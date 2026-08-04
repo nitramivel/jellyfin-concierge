@@ -133,6 +133,13 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="parse the query file and stop")
     args = parser.parse_args()
 
+    # A key read from a file or an unset shell variable arrives with a trailing
+    # newline, and urllib rejects that as a header value rather than trimming it.
+    # Both eval runs on 2026-08-04 died this way and still wrote a full report.
+    args.key = (args.key or "").strip()
+    if not args.key:
+        sys.exit("No API key. Dashboard -> API Keys, then pass it with --key.")
+
     queries = parse_queries(Path(args.queries))
     if not queries:
         sys.exit(f"No queries parsed from {args.queries}")
@@ -160,6 +167,16 @@ def main():
         except urllib.error.HTTPError as e:
             q.error = f"HTTP {e.code}"
             print(f"  {q.number:>2}. {q.text[:44]:<44} ERROR {q.error}")
+
+            # Auth will not fix itself on the next query, and forty rows of MISS
+            # read like a search failure rather than a rejected key.
+            if e.code in (401, 403):
+                sys.exit(
+                    f"\nHTTP {e.code} from {args.url} - the API key was refused. "
+                    "Nothing was measured; no results file written.\n"
+                    "Get a key from Dashboard -> API Keys and check it is the whole "
+                    "string with no newline."
+                )
             continue
         except Exception as e:  # noqa: BLE001 - a broken run should report, not crash
             q.error = str(e)
@@ -188,12 +205,20 @@ def main():
         print(f"  {q.number:>2}. {q.text[:44]:<44} {verdict}")
 
     # ---- summary ----
+    ran = [q for q in queries if q.error is None]
+    if not ran:
+        reasons = sorted({q.error for q in queries if q.error})
+        sys.exit(
+            "Every query failed, so there is nothing to report and "
+            f"{args.out} was left alone.\n  " + "\n  ".join(reasons)
+        )
+
     groups = {}
     for q in queries:
         groups.setdefault(q.group, []).append(q)
 
     lines = []
-    lines.append("# Phase 1 — results\n")
+    lines.append(f"# Results — {args.phase}\n")
     lines.append(f"Measured against a live index. Path: **{args.phase}**.\n")
     lines.append(f"Ran {len([q for q in queries if q.error is None])} of {len(queries)} queries; "
                  f"{len(labelled)} had an expected answer.\n")
