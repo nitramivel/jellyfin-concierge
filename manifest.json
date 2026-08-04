@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.28.0.0",
-        "changelog": "The search-box toggle turns Concierge off rather than rearranging it \u2014 no row, no request, nothing spent \u2014 and is on unless you turn it off. Jellyfin's \"no results found\" line is hidden while Concierge has matches, because it is false. The icon is centred, and the settings page is nearly twice as wide so the Models table stops being cut off. Themes and moments per item are settings, episodes can run on their own model and thinking mode, and the Vibe row reads as a sentence with its decade in it. Episodes live under their show in the Library tab. Folds in 0.19.0.0 through 0.27.0.0.",
+        "version": "0.29.0.0",
+        "changelog": "Regenerating the index no longer throws away enrichment you have already paid for \u2014 the store merges by item instead of being overwritten, which on one run here had cut 322 answers down to 131. An enrichment batch whose model spends its whole output budget reasoning and returns nothing is retried once with reasoning turned down rather than losing every item in it. Enrichment batches can run several at a time (Enrichment calls at once, default 1, unchanged behaviour until you raise it), and a new scheduled task banks enrichment without rebuilding or replacing the search index, so a long pass over episodes no longer pins search for hours. Builds are single-flight. When a model refuses a search, the search says so instead of quietly serving the free answer: forty-one straight provider failures here looked like nothing worse than poor results. Gemini models that reject a zero thinking budget are asked for the smallest one they will take rather than being let off the leash entirely. Single letters and stopword fragments no longer get promoted to the paid path. A model profile now says which passes it actually runs, and the Library tab says 'enrichment not embedded' rather than the misleading 'not indexed'. Folds in 0.28.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.28.0.0/concierge_0.28.0.0.zip",
-        "checksum": "260aa86c98baabd15f0abac7e1b2cc66",
-        "timestamp": "2026-08-03T06:03:12Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.29.0.0/concierge_0.29.0.0.zip",
+        "checksum": "df9bee37c98564f788c1686968269048",
+        "timestamp": "2026-08-04T13:40:23Z"
       },
       {
         "version": "0.18.0.0",
