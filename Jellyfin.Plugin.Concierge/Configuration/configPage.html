@@ -345,6 +345,13 @@
                         <button is="emby-button" type="button" id="ModelProfileRemove" class="raised">Remove</button>
                     </div>
 
+                    <!-- What this profile actually runs, not merely what it is called.
+                         A profile can be the default and run three passes nobody
+                         pointed at it, because an unset pass falls through — which is
+                         how one untested model silently took over planning and
+                         re-ranking and failed every search for three hours. -->
+                    <div id="ModelProfileUsage" class="conciergeSectionNote"></div>
+
                     <div id="ModelProfileEmpty" class="conciergeEmpty hide">
                         No chat profiles yet. Add one &mdash; Concierge cannot plan or re-rank without it.
                     </div>
@@ -1071,6 +1078,51 @@
                 }
             }
 
+            // Mirrors ModelProfiles.Resolve on the server: an unset pass follows the
+            // default. Read off the DOM, so it must only be called once every select
+            // has been filled — showProfile is, renderPassSelects's own fill is not.
+            function passesPoweredBy(profileId) {
+                if (!profileId) {
+                    return [];
+                }
+
+                var defaultId = defaultModelIdInUse();
+                var passes = [
+                    ['PlanModelProfileId', 'plan'],
+                    ['RerankModelProfileId', 're-rank'],
+                    ['EnrichmentModelProfileId', 'enrichment'],
+                    ['EpisodeModelProfileId', 'episodes']
+                ];
+
+                var used = [];
+                passes.forEach(function (pass) {
+                    var select = document.querySelector('#' + pass[0]);
+                    var chosen = select ? select.value : '';
+                    if (chosen ? chosen === profileId : profileId === defaultId) {
+                        used.push(pass[1]);
+                    }
+                });
+
+                return used;
+            }
+
+            function describeProfileUsage(profileId) {
+                var used = passesPoweredBy(profileId);
+                var isDefault = profileId === defaultModelIdInUse();
+
+                if (!used.length) {
+                    return isDefault
+                        ? 'Default, but running nothing \u2014 every pass names another profile.'
+                        : 'Not used by any pass.';
+                }
+
+                // Named explicitly, because "in use" was the old wording and it hid
+                // exactly the case that matters: one profile quietly running three
+                // passes because nobody set them.
+                return 'Runs: ' + used.join(', ')
+                    + (isDefault ? '. It is the default, so every pass left blank follows it.' : '.');
+            }
+
             function defaultModelIdInUse() {
                 var select = document.querySelector('#DefaultModelProfileId');
                 return select ? select.value : '';
@@ -1120,9 +1172,8 @@
 
                 profiles.forEach(function (profile) {
                     var selected = profile.Id === selectedId ? ' selected' : '';
-                    var inUse = profile.Id === defaultModelIdInUse() ? ' \u2014 in use' : '';
                     options.push('<option value="' + escapeHtml(profile.Id) + '"' + selected + '>'
-                        + escapeHtml(describeProfile(profile) + inUse) + '</option>');
+                        + escapeHtml(describeProfile(profile)) + '</option>');
                 });
 
                 select.innerHTML = options.join('');
@@ -1187,7 +1238,10 @@
 
                 var use = page.querySelector('#ModelProfileUse');
                 use.disabled = !profile || profile.Id === defaultModelIdInUse();
-                use.textContent = use.disabled ? 'In use' : 'Use this one';
+                use.textContent = use.disabled ? 'Is the default' : 'Make default';
+
+                page.querySelector('#ModelProfileUsage').textContent =
+                    profile ? describeProfileUsage(profile.Id) : '';
 
                 if (!profile) {
                     return;
@@ -1418,6 +1472,21 @@
                 captureModelEditor(page);
                 activeModelId = this.value;
                 renderAll(page);
+            });
+
+            // Reassigning a pass changes what every profile runs, and the line saying
+            // so is two tabs away from the select that changed it. Without this it
+            // goes stale the moment it becomes interesting.
+            ['DefaultModelProfileId', 'PlanModelProfileId', 'RerankModelProfileId',
+                'EnrichmentModelProfileId', 'EpisodeModelProfileId'].forEach(function (id) {
+                var select = page.querySelector('#' + id);
+                if (select) {
+                    select.addEventListener('change', function () {
+                        var profile = activeModel();
+                        page.querySelector('#ModelProfileUsage').textContent =
+                            profile ? describeProfileUsage(profile.Id) : '';
+                    });
+                }
             });
 
             page.querySelector('#ModelProfileAdd').addEventListener('click', function () {

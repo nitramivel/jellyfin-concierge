@@ -50,6 +50,39 @@ namespace Jellyfin.Plugin.Concierge.Tests
         /// line is not a small bug — it is a setting that silently cannot be changed,
         /// and it looks completely normal in the browser.
         /// </remarks>
+        /// <summary>
+        /// A profile page must say which passes the profile actually runs.
+        /// </summary>
+        /// <remarks>
+        /// The old label said "— in use" and meant only "this is the default". It hid
+        /// the case that cost three hours of broken search: Plan and Re-rank were both
+        /// unset, so they followed the default, and pointing the default at an untested
+        /// model silently repointed three passes. It was also shown inside the per-pass
+        /// dropdowns, where marking the default profile is simply wrong.
+        /// </remarks>
+        [Fact]
+        public void AProfileSaysWhichPassesItRuns_NotMerelyThatItIsTheDefault()
+        {
+            Assert.Contains("id=\"ModelProfileUsage\"", Page, StringComparison.Ordinal);
+            Assert.Contains("function passesPoweredBy", Page, StringComparison.Ordinal);
+
+            // Resolved the way the server resolves it: a blank pass follows the default.
+            Assert.Contains("chosen ? chosen === profileId : profileId === defaultId", Page, StringComparison.Ordinal);
+
+            // All four paid passes, or the line lies by omission.
+            foreach (var pass in new[]
+                     {
+                         "PlanModelProfileId", "RerankModelProfileId",
+                         "EnrichmentModelProfileId", "EpisodeModelProfileId",
+                     })
+            {
+                Assert.Contains($"['{pass}',", Page, StringComparison.Ordinal);
+            }
+
+            // And the old wording is gone from the dropdowns entirely.
+            Assert.DoesNotContain("\\u2014 in use", Page, StringComparison.Ordinal);
+        }
+
         [Theory]
         [InlineData("EnrichmentConcurrency")]
         [InlineData("EnrichmentBatchSize")]

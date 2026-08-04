@@ -12,7 +12,7 @@ anything good.
 | Index built against the real library | ❌ no |
 | Embedding model used | none — no provider configured, no key available |
 | Enrichment model used | none — same |
-| 40-query set run | ❌ no — `queries.md` has no expected answers yet |
+| 40-query set run | ❌ no — but `queries.md` is now labelled and all 40 parse, so it is runnable |
 
 ## Why not
 
