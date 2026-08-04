@@ -1,111 +1,84 @@
-# Phase 1 — results
+# Results — phase 1 — free path (BM25 + vectors + fusion, no re-rank)
 
-**Status: not yet measured on the real library.** The numbers this file exists to
-hold are still blank, and nothing downstream should be treated as validated until
-they are filled in. What *is* recorded here is the mechanism evidence: the
-retrieval stack running end to end over a fixture library, which says the
-plumbing is right and says nothing about whether the plumbing is pointed at
-anything good.
+Measured against a live index. Path: **phase 1 — free path (BM25 + vectors + fusion, no re-rank)**.
 
-| | |
-|---|---|
-| Index built against the real library | ❌ no |
-| Embedding model used | none — no provider configured, no key available |
-| Enrichment model used | none — same |
-| 40-query set run | ❌ no — but `queries.md` is now labelled and all 40 parse, so it is runnable |
+Ran 40 of 40 queries; 40 had an expected answer.
 
-## Why not
 
-Three things were needed and none were available in the session that built
-phase 1:
+## Retrieval
 
-1. **An embedding provider.** No API key is configured, and no local server was
-   listening on the usual Ollama or LM Studio ports on either the workstation or
-   the NAS. Without one there are no vectors, so half of retrieval cannot run.
-2. **An enrichment model.** Same key problem, and this one costs real money
-   (~$0.51 on Haiku-tier for 213 films, ~$2.55 on Opus-tier). Not something to
-   spend on the owner's behalf unasked.
-3. **The library itself.** Reading it needed either an API key out of
-   `data/jellyfin.db` or a query against a copy of that database; both were
-   refused by the sandbox. So the expected-answer column in `queries.md` could
-   not be filled either.
+| Group | Queries | recall@40 | recall@5 | recall@1 | MRR |
+|---|---|---|---|---|---|
+| Plot recall | 12 | 100% | 100% | 100% | 1.000 |
+| Vibe | 12 | 100% | 58% | 25% | 0.394 |
+| Constraints | 8 | 88% | 50% | 38% | 0.464 |
+| **All** | **32** | **97%** | **72%** | **56%** | **0.639** |
 
-**The cheapest unblock is a local embedding model.** Start LM Studio or Ollama,
-load `bge-m3` or `nomic-embed-text`, and point an embedding profile at
-`http://localhost:11434/v1`. Vectors then cost nothing, nothing leaves the
-house, and the free path — which is the entire phase-1 baseline — can be
-measured without spending a penny. Enrichment still needs a paid model, and the
-delta between "overviews only" and "enriched" is the single most useful number
-in the project, so it is worth the couple of dollars once.
+## Router
 
----
+6 of 8 title-shaped queries stayed on the free native path.
 
-## What was measured: mechanism, on a fixture library
+Sent to Concierge when they should not have been:
 
-14 recognisable films with real overviews and hand-written enrichment of the
-shape the real pass produces (`Jellyfin.Plugin.Concierge.Tests/FixtureLibrary.cs`),
-run through the real `Bm25Index`, `VectorIndex` and `RankFusion`. The embedder is
-a deterministic stand-in over a hand-built concept space, so **these results
-prove the pipeline, not the model.**
+- `fargo` → Both (short, and names nothing in the library)
+- `1917` → Concierge (carries a time or length constraint)
 
-| Query | Top 5 |
-|---|---|
-| `dark and twisted` | Oldboy, The Silence of the Lambs, Se7en, Fargo, Memento |
-| `nostalgic 90s classics` | Jurassic Park, Clueless, Groundhog Day, The Big Lebowski, Se7en |
-| `harrowing` | Se7en, Oldboy, The Silence of the Lambs, Blade Runner, Fargo |
-| `something gentle and cosy for a rainy afternoon` | Paddington, Amélie, Groundhog Day, **Blade Runner**, The Big Lebowski |
-| `the one where he tattoos the clues on himself` | **Memento**, Groundhog Day, Paddington, The Big Lebowski, The Silence of the Lambs |
+Of the 32 description-shaped queries, 1 were routed to native search.
 
-Four things worth keeping from that table:
 
-- **`nostalgic 90s classics` orders the decade by mood.** Seven of the fourteen
-  fixtures are from the 90s, so the era half of the query does not discriminate
-  much; what puts Jurassic Park above Se7en is `themes`. Se7en at rank 5 is
-  correct behaviour, not a near-miss — it *is* a 90s classic, and it is not what
-  anyone asking for "nostalgic" wants.
-- **`harrowing` appears nowhere in the corpus.** Lexical search returns
-  literally nothing for it. Every hit came through the vector half, which is the
-  clearest demonstration available that the semantic half earns its place.
-- **`the one where he tattoos the clues on himself` ranks Memento first**, and
-  Memento's overview never mentions tattoos. That is the enrichment `asks`
-  working exactly as §5.2 argues it will.
-- **Blade Runner at rank 4 for "cosy rainy afternoon" is a real bug**, and it is
-  instructive. "rainy" refers to the *viewer's* afternoon; Blade Runner's themes
-  say `rain`. The lexical half cannot tell those apart and neither can a bag of
-  concepts. This is precisely the class of error the phase-2 re-rank pass is
-  supposed to clean up, and it belongs on the list of things to check has
-  actually improved.
+## Cost and latency
 
-### Era vocabulary, measured with no model at all
+- mean latency **138ms**, p95 **346ms**
+- total cost for 40 queries: **$0.00000**
+- mean cost per query: **$0.00000**
 
-`EraTokens` writes `1995 1990s 90s nineties` into each document, so era language
-matches lexically:
+## Every query
 
-- `90s`, `1990s` and `nineties` all return the same films, and only 90s films.
-- This runs with **zero** vectors and **zero** model calls, which is what keeps
-  era queries working when the budget is exhausted (hard rule 4).
-
-It is a weaker thing than the phase-2 plan pass, which turns "90s" into a real
-`[1990,1999]` filter that can be applied as a hard cut. It is not a replacement
-for it.
-
----
-
-## The table to fill in
-
-Once an embedding profile exists and `queries.md` has its answers:
-
-| Group | recall@40 | recall@5 | recall@1 | MRR | cost/query | p95 latency |
+| # | Group | Query | Expected | Rank | Route | ms |
 |---|---|---|---|---|---|---|
-| Plot recall | | | | | | |
-| Vibe | | | | | | |
-| Constraints | | | | | | |
-| **All** | | | | | | |
+| 1 | Plot recall | the one where they kill the guy's dog | John Wick | 1 | Concierge | 6 |
+| 2 | Plot recall | the one where he pays to have his ex erased from his memory | Eternal Sunshine of the Spotless Mind | 1 | Concierge | 1 |
+| 3 | Plot recall | the one where the narrator turns out to be the same person as the other guy | Fight Club | 1 | Concierge | 1 |
+| 4 | Plot recall | the movie where a guy's whole life is secretly a TV show | The Truman Show | 1 | Concierge | 1 |
+| 5 | Plot recall | the one where he sails to the edge of the world and hits a wall | The Truman Show | 1 | Concierge | 0 |
+| 6 | Plot recall | the one where the poor family all get jobs working for the rich family | Parasite | 1 | Concierge | 0 |
+| 7 | Plot recall | the one with the spinning top at the end | Inception | 1 | Concierge | 346 |
+| 8 | Plot recall | film where they're stuck reliving the same day | Groundhog Day; Edge of Tomorrow | 1 | Concierge | 216 |
+| 9 | Plot recall | the one shot to look like a single unbroken take | Birdman or (The Unexpected Virtue of Ignorance) | 1 | Concierge | 273 |
+| 10 | Plot recall | the one where you die seven days after watching the tape | The Ring | 1 | Concierge | 155 |
+| 11 | Plot recall | the one where the family is attacked by their own doubles | Us | 1 | Concierge | 347 |
+| 12 | Plot recall | the one where an hour on the planet costs them seven years | Interstellar | 1 | Concierge | 290 |
+| 13 | Vibe | dark and twisted | Hereditary; Midsommar; American Psycho; The Substance; Gummo | 20 | Concierge | 166 |
+| 14 | Vibe | nostalgic 90s classics | The Matrix; Pulp Fiction; Forrest Gump; The Shawshank Redemption; Groundhog Day | 11 | Concierge | 148 |
+| 15 | Vibe | something funny but not stupid, for a Sunday | The Grand Budapest Hotel; The Royal Tenenbaums; Ferris Bueller's Day Off; Superbad | 23 | Concierge | 169 |
+| 16 | Vibe | something gentle and cosy for a rainy afternoon | Ratatouille; Moonrise Kingdom; Spirited Away; Fantastic Mr. Fox | 3 | Concierge | 176 |
+| 17 | Vibe | a comfort watch | Ferris Bueller's Day Off; Groundhog Day; Ratatouille; Elf | 15 | Concierge | 191 |
+| 18 | Vibe | something bleak | Gummo; I'm Thinking of Ending Things; Hereditary; Midsommar | 4 | Concierge | 209 |
+| 19 | Vibe | stylish and cool, nothing heavy | Baby Driver; Scott Pilgrim vs. the World; True Romance | 1 | Concierge | 218 |
+| 20 | Vibe | genuinely frightening, not just gory | Hereditary; The Ring; Get Out; Cure | 2 | Concierge | 172 |
+| 21 | Vibe | something to put on with friends who aren't paying attention | Happy Gilmore; Step Brothers; Zoolander; Nacho Libre | 17 | Concierge | 153 |
+| 22 | Vibe | slow and beautiful, nothing happens | 2001: A Space Odyssey; I'm Thinking of Ending Things; Thirty Two Short Films About Glenn Gould | 1 | Concierge | 156 |
+| 23 | Vibe | feel-good but not saccharine | The Secret Life of Walter Mitty; The Perks of Being a Wallflower; Ratatouille | 3 | Concierge | 230 |
+| 24 | Vibe | tense the whole way through | Parasite; Gravity; Sunshine; Get Out | 1 | Concierge | 235 |
+| 25 | Constraints | 90s sci-fi under two hours | Men in Black; Back to the Future Part III | 1 | Concierge | 171 |
+| 26 | Constraints | something from the 80s | Back to the Future; Blade Runner; E.T. the Extra-Terrestrial; Ferris Bueller's Day Off; Planes, Trains and Automobiles | 1 | Concierge | 200 |
+| 27 | Constraints | a short comedy, under 100 minutes | Fantastic Mr. Fox; Elf; The Darjeeling Limited; Can't Buy Me Love | MISS | Concierge | 171 |
+| 28 | Constraints | recent thrillers | Saltburn; The Substance; The Housemaid; Obsession | 29 | Concierge | 216 |
+| 29 | Constraints | anything with Toni Collette | Hereditary; I'm Thinking of Ending Things | 1 | Concierge | 202 |
+| 30 | Constraints | a Wes Anderson film | The Grand Budapest Hotel; Moonrise Kingdom; The Royal Tenenbaums; Isle of Dogs; Asteroid City; Fantastic Mr. Fox; The Darjeeling Limited; The Life Aquatic with Steve Zissou | 2 | Native | 1 |
+| 31 | Constraints | animated, but not for children | Isle of Dogs; Fantastic Mr. Fox | 16 | Concierge | 162 |
+| 32 | Constraints | something made before 1970 | 2001: A Space Odyssey; A Hard Day's Night; Yellow Submarine; Help!; Magical Mystery Tour | 9 | Concierge | 141 |
+| 33 | Not-Concierge | blade | Native | — | Native | 1 |
+| 34 | Not-Concierge | bla | Native | — | Native | 1 |
+| 35 | Not-Concierge | the of | Native | — | Native | 1 |
+| 36 | Not-Concierge | fargo | Native | — | Both | 168 |
+| 37 | Not-Concierge | lord of the rings | Native | — | Native | 1 |
+| 38 | Not-Concierge | tarantino | Native | — | Native | 1 |
+| 39 | Not-Concierge | s | Native | — | Native | 1 |
+| 40 | Not-Concierge | 1917 | Native — a title, not a year filter | — | Concierge | 216 |
 
-Router split: __ of 40 took the free native path (group 4 alone should account
-for 8).
+## Misses — read these before changing anything
 
-**And the measurement that matters most:** run the whole set twice, once with
-`EnableEnrichment` off and once with it on. The delta between those two
-recall@40 numbers is the answer to "is enrichment carrying this feature or
-decorating it", and every cost decision in phase 2 depends on knowing it.
+An expected item that never reached the top 40 is a **retrieval** failure, and the lever is enrichment. One that reached the shortlist but ranked low is a **ranking** failure, and the lever is the phase-2 re-rank prompt. From a results page the two look identical.
+
+- `a short comedy, under 100 minutes` — expected Fantastic Mr. Fox; Elf; The Darjeeling Limited; Can't Buy Me Love; top result was Thirty Two Short Films About Glenn Gould
