@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Plugin.Concierge.Core.Retrieval;
 
 namespace Jellyfin.Plugin.Concierge.Core.Query
@@ -127,6 +128,47 @@ namespace Jellyfin.Plugin.Concierge.Core.Query
         /// </remarks>
         /// <param name="scores">The lexical scores, best first.</param>
         /// <returns>True when the top hit clearly wins.</returns>
+        /// <summary>
+        /// Whether a Native query is substantial enough that a flat keyword result is
+        /// worth paying a model to disentangle.
+        /// </summary>
+        /// <param name="query">The raw query text.</param>
+        /// <returns>True when the query has real words to be ambiguous about.</returns>
+        /// <remarks>
+        /// <b>A flat score distribution has two completely different causes.</b> Either
+        /// several real titles tie — <c>michael scott</c> scoring Scott Pilgrim 5.93
+        /// against The Office 5.55, which is exactly what the upgrade exists to rescue —
+        /// or the query is so thin that everything matches it weakly and nothing matches
+        /// it well. The second is not ambiguity, it is noise, and no model can resolve
+        /// it into a title the person never typed.
+        /// <para>
+        /// Measured: of eight deliberately title-shaped evaluation queries, seven left
+        /// the free native route under the paid path, against two on the free run.
+        /// <c>s</c>, <c>bla</c>, <c>the of</c> and <c>blade</c> were each sent to a
+        /// model — seconds of latency and real money for a query the native list
+        /// already answers, against hard rule 2 and hard rule 11.
+        /// </para>
+        /// <para>
+        /// So the upgrade needs two words that are actually words: at least
+        /// <c>MinimumUpgradeTokens</c> tokens of <c>MinimumUpgradeTokenLength</c>
+        /// characters or more. It deliberately does not try to judge whether those
+        /// words name anything — that is what the scores are for.
+        /// </para>
+        /// </remarks>
+        /// <summary>How many real words a query needs before a model may be paid to read it.</summary>
+        private const int MinimumUpgradeTokens = 2;
+
+        /// <summary>How long a token must be to count as a real word rather than a fragment.</summary>
+        private const int MinimumUpgradeTokenLength = 3;
+
+        public static bool IsWorthUpgrading(string? query)
+        {
+            var tokens = Tokenizer.Tokenize(query);
+            var substantial = tokens.Count(t => t.Length >= MinimumUpgradeTokenLength);
+
+            return substantial >= MinimumUpgradeTokens;
+        }
+
         public static bool HasDominantWinner(IReadOnlyList<double> scores)
         {
             ArgumentNullException.ThrowIfNull(scores);

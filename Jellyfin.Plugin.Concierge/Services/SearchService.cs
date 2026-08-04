@@ -262,6 +262,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             if (lexicalOnly
                 && !preview
                 && budget.AllowsAnySpend
+                && QueryRouter.IsWorthUpgrading(query)
                 && !QueryRouter.HasDominantWinner(lexical.Select(h => h.Score).ToList()))
             {
                 lexicalOnly = false;
