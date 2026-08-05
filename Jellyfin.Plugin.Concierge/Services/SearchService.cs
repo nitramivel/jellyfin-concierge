@@ -447,6 +447,30 @@ namespace Jellyfin.Plugin.Concierge.Services
             return line.Length > 160 ? line[..160] + "\u2026" : line;
         }
 
+        /// <summary>
+        /// A token that also gives up when a search has waited longer than it should.
+        /// </summary>
+        /// <param name="config">The configuration.</param>
+        /// <param name="cancellationToken">The caller's token.</param>
+        /// <returns>A linked source; dispose it with the call.</returns>
+        private static CancellationTokenSource QueryDeadline(
+            PluginConfiguration config, CancellationToken cancellationToken)
+        {
+            var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var seconds = config.QueryTimeoutSeconds;
+
+            if (seconds > 0)
+            {
+                source.CancelAfter(TimeSpan.FromSeconds(seconds));
+            }
+
+            return source;
+        }
+
+        /// <summary>Whether a cancellation was our deadline rather than the caller leaving.</summary>
+        private static bool TimedOut(CancellationToken caller, CancellationTokenSource deadline)
+            => deadline.IsCancellationRequested && !caller.IsCancellationRequested;
+
         private async Task<(SearchPlan Plan, string? Error)> RunPlanAsync(
             string query,
             PluginConfiguration config,
@@ -454,6 +478,8 @@ namespace Jellyfin.Plugin.Concierge.Services
             List<QueryCallRecord> calls,
             CancellationToken cancellationToken)
         {
+            using var deadline = QueryDeadline(config, cancellationToken);
+
             try
             {
                 // Hard rule 12: both passes resolve from this one Normalize result.
@@ -470,11 +496,23 @@ namespace Jellyfin.Plugin.Concierge.Services
                     ResponseShape.SearchPlan);
 
                 var stopwatch = Stopwatch.StartNew();
-                var result = await provider.CompleteAsync(request, cancellationToken).ConfigureAwait(false);
+                var result = await provider.CompleteAsync(request, deadline.Token).ConfigureAwait(false);
                 stopwatch.Stop();
 
                 calls.Add(Record(QueryPass.Plan, profile, provider.ModelId, result, stopwatch));
                 return (PlanParser.Parse(result.Text, query), null);
+            }
+            catch (OperationCanceledException) when (TimedOut(cancellationToken, deadline))
+            {
+                // Ours, not the caller's. A search that waits is still a search that
+                // has already answered for free.
+                _logger.LogWarning(
+                    "Concierge: the plan pass passed {Seconds}s and was abandoned; searching on the raw query",
+                    config.QueryTimeoutSeconds);
+
+                return (
+                    SearchPlan.Passthrough(query),
+                    $"gave up after {config.QueryTimeoutSeconds}s");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -564,6 +602,8 @@ namespace Jellyfin.Plugin.Concierge.Services
             List<QueryCallRecord> calls,
             CancellationToken cancellationToken)
         {
+            using var deadline = QueryDeadline(config, cancellationToken);
+
             try
             {
                 var profile = ModelProfiles.Resolve(normalized, config.RerankModelProfileId);
@@ -589,7 +629,7 @@ namespace Jellyfin.Plugin.Concierge.Services
                     ResponseShape.Rerank);
 
                 var stopwatch = Stopwatch.StartNew();
-                var result = await provider.CompleteAsync(request, cancellationToken).ConfigureAwait(false);
+                var result = await provider.CompleteAsync(request, deadline.Token).ConfigureAwait(false);
                 stopwatch.Stop();
 
                 calls.Add(Record(QueryPass.Rerank, profile, provider.ModelId, result, stopwatch));
@@ -608,6 +648,15 @@ namespace Jellyfin.Plugin.Concierge.Services
                 }
 
                 return outcome;
+            }
+            catch (OperationCanceledException) when (TimedOut(cancellationToken, deadline))
+            {
+                _logger.LogWarning(
+                    "Concierge: the re-rank pass passed {Seconds}s and was abandoned; serving the fused order",
+                    config.QueryTimeoutSeconds);
+
+                reportFailure($"gave up after {config.QueryTimeoutSeconds}s");
+                return null;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

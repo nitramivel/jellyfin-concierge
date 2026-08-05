@@ -215,6 +215,30 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public int EnrichmentConcurrency { get; set; } = 1;
 
         /// <summary>
+        /// Gets or sets how long a query-time model call may take before the search
+        /// gives up on it and serves the free answer.
+        /// </summary>
+        /// <remarks>
+        /// <b>The transport has no deadline a search would recognise.</b> The shared
+        /// HttpClient allows ten minutes per request and the transient retry will make
+        /// four attempts, so a wedged call can hold a search for the better part of an
+        /// hour — inside a pipeline whose whole latency budget is a couple of seconds.
+        /// Observed here as a search still running after six minutes with nothing
+        /// logged, because waiting is not an error and nothing was timing it.
+        /// <para>
+        /// Hitting this is not a failure of the search: retrieval has already answered
+        /// for free, and hard rule 4 says a paid pass that cannot run degrades rather
+        /// than errors. It is reported like any other degradation so it is visible
+        /// rather than merely survived.
+        /// </para>
+        /// <para>
+        /// Index-time enrichment is deliberately not covered. Nobody is waiting on a
+        /// build, and a batch that takes two minutes is normal there.
+        /// </para>
+        /// </remarks>
+        public int QueryTimeoutSeconds { get; set; } = 30;
+
+        /// <summary>
         /// Gets or sets how many generated phrasings are kept per item.
         /// </summary>
         /// <remarks>

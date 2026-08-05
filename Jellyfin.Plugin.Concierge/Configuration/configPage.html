@@ -891,6 +891,19 @@
                     </div>
 
                     <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="QueryTimeoutSeconds">Give up on a model after (seconds)</label>
+                        <input id="QueryTimeoutSeconds" type="number" step="1" min="0" max="600" class="emby-input" />
+                        <div class="fieldDescription">
+                            The transport allows ten minutes per request and retries up to four times, so without
+                            this a wedged call can hold a search for the better part of an hour &mdash; inside a
+                            pipeline whose whole budget is a couple of seconds. Passing this is not a failed
+                            search: keyword and semantic results have already answered for free, and the search
+                            says it gave up rather than pretending the model agreed with it. 0 disables the
+                            deadline. Index builds are not affected.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="PaidQueriesPerUserPerHour">Paid searches per user per hour</label>
                         <input id="PaidQueriesPerUserPerHour" type="number" step="1" min="0" class="emby-input" />
                         <div class="fieldDescription">
@@ -1400,6 +1413,8 @@
                 page.querySelector('#EnrichmentBatchSize').value = config.EnrichmentBatchSize || 12;
                 page.querySelector('#EnrichmentConcurrency').value = config.EnrichmentConcurrency || 1;
                 page.querySelector('#QuoteWindowWords').value = config.QuoteWindowWords || 40;
+                page.querySelector('#QueryTimeoutSeconds').value =
+                    config.QueryTimeoutSeconds === undefined ? 30 : config.QueryTimeoutSeconds;
                 page.querySelector('#EmbeddingBatchSize').value = config.EmbeddingBatchSize || 64;
                 page.querySelector('#MaxResults').value = config.MaxResults || 40;
 
@@ -1465,6 +1480,10 @@
                     config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
                     config.EnrichmentConcurrency = parseInt(page.querySelector('#EnrichmentConcurrency').value, 10) || 1;
                     config.QuoteWindowWords = parseInt(page.querySelector('#QuoteWindowWords').value, 10) || 40;
+                    config.QueryTimeoutSeconds = parseInt(page.querySelector('#QueryTimeoutSeconds').value, 10);
+                    if (isNaN(config.QueryTimeoutSeconds)) {
+                        config.QueryTimeoutSeconds = 30;
+                    }
                     config.EmbeddingBatchSize = parseInt(page.querySelector('#EmbeddingBatchSize').value, 10) || 64;
                     config.MaxResults = parseInt(page.querySelector('#MaxResults').value, 10) || 40;
 
