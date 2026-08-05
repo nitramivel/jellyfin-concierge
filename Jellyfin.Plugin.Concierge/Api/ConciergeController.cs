@@ -611,6 +611,77 @@ namespace Jellyfin.Plugin.Concierge.Api
         /// vector rows are rebuilt by the index build, and until that runs the item
         /// shows as waiting to be indexed rather than pretending to be live.
         /// </remarks>
+        /// <summary>
+        /// Forgets everything Concierge has stored about one item.
+        /// </summary>
+        /// <param name="itemId">The item.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <response code="200">What was forgotten.</response>
+        /// <response code="409">An index build is running; it owns the stores.</response>
+        /// <returns>What was forgotten.</returns>
+        /// <remarks>
+        /// <b>The item is not touched.</b> The library is read-only (hard rule 6) and
+        /// nothing here goes near it — this drops Concierge's own answers so the next
+        /// index build has to work them out again.
+        /// <para>
+        /// It exists because the build reuses enrichment by source hash, which is what
+        /// makes an unchanged nightly run free. That is right almost always and wrong
+        /// exactly when the stored answer is bad: nothing about the film changed, so
+        /// nothing will ever re-ask. Forgetting is how you say "this one is wrong" for a
+        /// single item, without the cost of regenerating the whole library.
+        /// </para>
+        /// <para>
+        /// Distinct from Reindex, which asks a model now and bills you now. This costs
+        /// nothing and defers the work to the next build.
+        /// </para>
+        /// </remarks>
+        [HttpDelete("Library/{itemId}")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<ActionResult<ForgetResult>> Forget(
+            [FromRoute] Guid itemId,
+            CancellationToken cancellationToken)
+        {
+            // A build owns both stores while it runs.
+            if (_indexRuns.Current() is not null)
+            {
+                return Conflict("An index build is running. Wait for it to finish.");
+            }
+
+            var enrichment = await _store.ForgetEnrichmentAsync(itemId, cancellationToken).ConfigureAwait(false);
+            var dialogue = await _quotes.ForgetAsync(itemId, cancellationToken).ConfigureAwait(false);
+
+            return Ok(new ForgetResult(
+                enrichment,
+                dialogue,
+                Describe(enrichment, dialogue)));
+        }
+
+        private static string Describe(bool enrichment, bool dialogue)
+        {
+            if (!enrichment && !dialogue)
+            {
+                return "Nothing was stored for this item.";
+            }
+
+            var parts = new List<string>(2);
+            if (enrichment)
+            {
+                parts.Add("enrichment");
+            }
+
+            if (dialogue)
+            {
+                parts.Add("dialogue");
+            }
+
+            // Named plainly, because the next build is where the cost lands and the
+            // person clicking this should know that before they click it forty times.
+            return "Forgot " + string.Join(" and ", parts)
+                + ". The next index build will read this item again, and will pay to enrich it.";
+        }
+
         [HttpPost("Library/{itemId}/Reindex")]
         [Authorize(Policy = Policies.RequiresElevation)]
         [ProducesResponseType(StatusCodes.Status200OK)]

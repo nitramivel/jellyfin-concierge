@@ -54,6 +54,14 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
             IReadOnlyCollection<StoredEnrichment> enrichment,
             CancellationToken cancellationToken);
 
+        /// <summary>
+        /// Forgets one item's stored enrichment, so the next build treats it as new.
+        /// </summary>
+        /// <param name="itemId">The item to forget.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>True when there was something to forget.</returns>
+        Task<bool> ForgetEnrichmentAsync(Guid itemId, CancellationToken cancellationToken);
+
         /// <summary>Reads the stored state without loading vectors.</summary>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The state, or null when nothing is stored.</returns>
@@ -297,6 +305,42 @@ namespace Jellyfin.Plugin.Concierge.Services.Indexing
                         merged.Values.ToList(),
                         cancellationToken)
                     .ConfigureAwait(false);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// Removes the answer, not the item. The library is read-only (hard rule 6) and
+        /// nothing here goes near it: this drops what Concierge decided about a film so
+        /// the next build has to decide again, which is the only way to make it re-ask a
+        /// model about something whose source text has not changed.
+        /// </remarks>
+        public async Task<bool> ForgetEnrichmentAsync(Guid itemId, CancellationToken cancellationToken)
+        {
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var stored = await ReadJsonAsync<List<StoredEnrichment>>(EnrichmentFile, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (stored is null)
+                {
+                    return false;
+                }
+
+                var kept = stored.Where(e => e.ItemId != itemId).ToList();
+                if (kept.Count == stored.Count)
+                {
+                    return false;
+                }
+
+                Directory.CreateDirectory(_directory);
+                await WriteJsonAsync(EnrichmentFile, kept, cancellationToken).ConfigureAwait(false);
+                return true;
             }
             finally
             {

@@ -2610,6 +2610,16 @@
                         + '</select>'
                         + '<button is="emby-button" type="button" id="ConciergeRedoRun-' + itemId + '" class="raised">'
                         + 'Ask again</button>'
+                        + '<button is="emby-button" type="button" id="ConciergeForget-' + itemId + '" class="raised">'
+                        + 'Forget this item</button>'
+                        + '</div>'
+                        + '<div class="fieldDescription" style="margin-top:0.4em;">'
+                        + '<strong>Forget</strong> throws away what Concierge stored about this item so the '
+                        + 'next index build reads it again from scratch. Nothing in your library is touched. '
+                        + 'Use it when the stored answer is wrong: builds reuse enrichment by source hash, so '
+                        + 'an item whose file has not changed is never re-asked on its own. Free now &mdash; '
+                        + 'the next build pays to enrich it. <strong>Ask again</strong> is the opposite: it '
+                        + 'spends money immediately and keeps the index as it is.'
                         + '</div>'
                         + '<div class="selectContainer" style="margin-top:0.7em;">'
                         + '<label class="selectLabel" for="ConciergeRedoSubs-' + itemId + '">Dialogue</label>'
@@ -2677,6 +2687,34 @@
                         'Use the enrichment profile');
 
                     fillSubtitleSelect(target.querySelector('#ConciergeRedoSubs-' + itemId), itemId);
+
+                    target.querySelector('#ConciergeForget-' + itemId).addEventListener('click', function () {
+                        var button = this;
+                        var out = target.querySelector('#ConciergeRedoResult-' + itemId);
+
+                        if (!window.confirm(
+                            'Forget what Concierge stored about this item?\n\n'
+                            + 'Your library is not touched. The next index build will read it again and '
+                            + 'will pay to enrich it.')) {
+                            return;
+                        }
+
+                        button.disabled = true;
+                        out.textContent = 'Forgetting\u2026';
+
+                        ApiClient.ajax({
+                            type: 'DELETE',
+                            url: ApiClient.getUrl('Concierge/Library/' + itemId),
+                            dataType: 'json'
+                        }).then(function (r) {
+                            out.textContent = r.Message;
+                            button.disabled = false;
+                            loadLibrary();
+                        }, function () {
+                            out.textContent = 'Could not forget it \u2014 an index build may be running.';
+                            button.disabled = false;
+                        });
+                    });
 
                     target.querySelector('#ConciergeRedoRun-' + itemId).addEventListener('click', function () {
                         var button = this;

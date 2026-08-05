@@ -56,6 +56,9 @@ namespace Jellyfin.Plugin.Concierge.Tests
             public Task SaveEnrichmentAsync(IReadOnlyCollection<StoredEnrichment> e, CancellationToken ct)
                 => Task.CompletedTask;
 
+            public Task<bool> ForgetEnrichmentAsync(Guid itemId, CancellationToken ct)
+                => Task.FromResult(false);
+
             public Task<IndexState?> LoadStateAsync(CancellationToken ct)
                 => Task.FromResult<IndexState?>(_index.State);
 

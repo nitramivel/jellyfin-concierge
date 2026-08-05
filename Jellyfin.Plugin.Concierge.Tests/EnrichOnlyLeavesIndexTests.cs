@@ -86,6 +86,9 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 }
             }
 
+            public Task<bool> ForgetEnrichmentAsync(Guid itemId, CancellationToken ct)
+                => Task.FromResult(false);
+
             public Task<IndexState?> LoadStateAsync(CancellationToken ct)
                 => Task.FromResult<IndexState?>(null);
 

@@ -202,6 +202,14 @@ namespace Jellyfin.Plugin.Concierge.Api
     /// <param name="QuotesForgotten">Whether stored dialogue was discarded.</param>
     /// <param name="Dialogue">What the chosen subtitle track produced, or null.</param>
     /// <param name="Note">What still has to happen for this to reach searches.</param>
+    /// <summary>
+    /// What a forget removed.
+    /// </summary>
+    /// <param name="Enrichment">Whether stored enrichment was dropped.</param>
+    /// <param name="Dialogue">Whether an extracted dialogue track was dropped.</param>
+    /// <param name="Message">One line for the person who pressed the button.</param>
+    public sealed record ForgetResult(bool Enrichment, bool Dialogue, string Message);
+
     public sealed record ReindexResult(
         string Title,
         bool Enriched,
