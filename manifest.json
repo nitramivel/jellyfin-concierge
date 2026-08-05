@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.31.0.0",
-        "changelog": "Fixes a thinking budget being discarded the moment you set one. The level a Gemini model had agreed to was remembered by its position in a list whose shape depends on your configuration, so saving a budget silently reinterpreted it \u2014 observed here as a model going straight back to unbounded reasoning on the first search after the setting was configured. It now remembers the number itself. Adds Forget this item to the Library tab: it drops what Concierge stored about one item so the next index build reads it again from scratch. Your library is not touched. Builds reuse enrichment by source hash, which is what makes an unchanged nightly run cost nothing and also why a wrong answer is permanent \u2014 nothing about the file changed, so nothing ever re-asks. Forgetting is free; the next build pays to enrich it. That is the opposite of Ask again, which spends now and leaves the index alone. Folds in 0.30.0.0.",
+        "version": "0.32.0.0",
+        "changelog": "Fixes a search failing outright instead of falling back to its free results. A model call can be cancelled three ways \u2014 a query deadline, the HTTP client's own ten-minute timeout, or you navigating away \u2014 and only the last means stop. The first two used to escape the fallback and surface as 'The search request failed', for a search that had already found its keyword and semantic results and simply needed to serve them. Adds a deadline of its own: a query-time model call now has 30 seconds (settable, 0 disables) before the search gives up on it and serves what it already has, saying so rather than spinning. Index builds are unaffected. And the search now says what it is doing while it does it: each paid pass logs its model, provider, token cap and whether thinking is really on before the call, and its duration, tokens and thinking after; retrieval logs its hit counts; and a throttled call now reports the status and how long it is waiting instead of looking like a slow model. Folds in 0.31.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.31.0.0/concierge_0.31.0.0.zip",
-        "checksum": "d35d402ec18409f8f3f900339f13b3ab",
-        "timestamp": "2026-08-05T10:36:48Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.32.0.0/concierge_0.32.0.0.zip",
+        "checksum": "cdb1a314bca5470a2afc9adfdb2f8de0",
+        "timestamp": "2026-08-05T11:29:19Z"
       },
       {
         "version": "0.18.0.0",
