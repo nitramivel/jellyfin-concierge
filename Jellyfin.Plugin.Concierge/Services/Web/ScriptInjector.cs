@@ -202,12 +202,19 @@ namespace Jellyfin.Plugin.Concierge.Services.Web
                 return script;
             }
 
-            var debounce = Math.Clamp(config.SearchDebounceMs, 250, 30000);
+            var debounce = Math.Clamp(config.SearchDebounceMs, 100, 30000);
 
             script = System.Text.RegularExpressions.Regex.Replace(
                 script,
                 @"var DEBOUNCE_MS = \d+;",
                 "var DEBOUNCE_MS = " + debounce.ToString(CultureInfo.InvariantCulture) + ";");
+
+            script = System.Text.RegularExpressions.Regex.Replace(
+                script,
+                @"var INPUT_MAX_LENGTH = \d+;",
+                "var INPUT_MAX_LENGTH = "
+                    + Math.Clamp(config.SearchInputMaxLength, 0, 5000).ToString(CultureInfo.InvariantCulture)
+                    + ";");
 
             return System.Text.RegularExpressions.Regex.Replace(
                 script,

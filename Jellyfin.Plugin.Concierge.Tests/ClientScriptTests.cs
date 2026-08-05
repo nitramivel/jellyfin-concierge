@@ -146,7 +146,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
                     "setTimeout", "clearTimeout", "String", "Math", "Array",
                     "JSON", "MutationObserver", "encodeURIComponent", "if",
                     "for", "while", "switch", "catch", "return", "typeof",
-                    "function", "requestAnimationFrame",
+                    "function", "requestAnimationFrame", "parseInt", "isNaN",
                 },
                 StringComparer.Ordinal);
 

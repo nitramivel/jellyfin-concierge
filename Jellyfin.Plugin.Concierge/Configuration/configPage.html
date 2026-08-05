@@ -948,8 +948,21 @@
                     </div>
 
                     <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="SearchInputMaxLength">Search box character limit</label>
+                        <input id="SearchInputMaxLength" type="number" step="10" min="0" max="2000" class="emby-input" />
+                        <div class="fieldDescription">
+                            Jellyfin's own search box carries a <code>maxlength</code> sized for typing a title,
+                            which cuts a sentence off mid-word &mdash; and a sentence is the whole point here.
+                            Setting a number raises the limit on that input. <strong>0 leaves Jellyfin's own
+                            value completely alone</strong>, which is the default, and the limit is only ever
+                            raised and never lowered: narrowing a field the native search shares would break
+                            searches that have nothing to do with Concierge.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="SearchDebounceMs">Wait before spending (milliseconds)</label>
-                        <input id="SearchDebounceMs" type="number" step="250" min="250" max="10000" class="emby-input" />
+                        <input id="SearchDebounceMs" type="number" step="100" min="100" max="10000" class="emby-input" />
                         <div class="fieldDescription">
                             How long the search box must be still before Concierge pays for a search.
                             Jellyfin's own search waits 500&nbsp;ms because its requests are free; this one
@@ -1460,6 +1473,7 @@
                 page.querySelector('#PaidQueriesPerUserPerHour').value =
                     config.PaidQueriesPerUserPerHour === undefined ? 30 : config.PaidQueriesPerUserPerHour;
                 page.querySelector('#RerankShortlistSize').value = config.RerankShortlistSize || 40;
+                page.querySelector('#SearchInputMaxLength').value = config.SearchInputMaxLength || 0;
                 page.querySelector('#SearchDebounceMs').value = config.SearchDebounceMs || 2000;
                 page.querySelector('#HideJellyseerrIcon').checked = config.HideJellyseerrIcon !== false;
                 page.querySelector('#RerankWhyMaxChars').value = config.RerankWhyMaxChars || 60;
@@ -1538,6 +1552,8 @@
                     config.PaidQueriesPerUserPerHour =
                         parseInt(page.querySelector('#PaidQueriesPerUserPerHour').value, 10) || 0;
                     config.RerankShortlistSize = parseInt(page.querySelector('#RerankShortlistSize').value, 10) || 40;
+                    config.SearchInputMaxLength =
+                        parseInt(page.querySelector('#SearchInputMaxLength').value, 10) || 0;
                     config.SearchDebounceMs = parseInt(page.querySelector('#SearchDebounceMs').value, 10) || 2000;
                     config.HideJellyseerrIcon = page.querySelector('#HideJellyseerrIcon').checked;
                     config.RerankWhyMaxChars = parseInt(page.querySelector('#RerankWhyMaxChars').value, 10) || 60;

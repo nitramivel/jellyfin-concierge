@@ -51,6 +51,10 @@
     // runs immediately for somebody who has finished typing deliberately.
     var DEBOUNCE_MS = 2000;
 
+    /* Raised onto Jellyfin's own search input, or 0 to leave it alone. Rewritten by
+     * ScriptInjector from the plugin configuration, like DEBOUNCE_MS above. */
+    var INPUT_MAX_LENGTH = 0;
+
     // The free half of the pipeline — keyword retrieval, no embedding, no model —
     // answers in about a millisecond. Measured on this library: 0 ms median, 110 ms
     // worst, against 6.4 s for the full path. There is no reason to look at an empty
@@ -356,8 +360,11 @@
             el.classList.toggle('concierge-full', wanted);
         }
 
-        if (!wanted) {
-            restoreSections();
+        // Everything we hid comes back first, so each pass starts from the page as
+        // Jellyfin left it and re-hides only what is still true.
+        restoreSections();
+
+        if (!showing) {
             return;
         }
 
@@ -374,6 +381,14 @@
         if (empty && !empty.classList.contains('concierge-hidden')) {
             empty.classList.add('concierge-hidden');
             hiddenSections.push(empty);
+        }
+
+        /* Hiding that line is independent of the mode toggle. It used to sit behind
+         * it, so in the default additive mode it stayed on screen alongside a full
+         * row of Concierge matches, flatly contradicting them. Giving the whole page
+         * over is a presentation choice; the line being false is not. */
+        if (!wanted) {
+            return;
         }
 
         Array.prototype.forEach.call(page.querySelectorAll('.verticalSection'), function (s) {
@@ -736,6 +751,21 @@
             // Nothing to add. Emptying our own container is fine \u2014 we made it.
             // The working class goes too: a row still sweeping over an empty answer
             // claims work is happening when it has finished and found nothing.
+            if (provisional) {
+                /* A provisional answer with nothing in it is not an answer yet.
+                 *
+                 * The paid request for this same query is still coming, so tearing
+                 * the row down here makes a search that is still working look like
+                 * one that finished and found nothing, and hands the page back to
+                 * Jellyfin's "no results" line at the worst possible moment.
+                 *
+                 * The free half is keyword-only, so coming back empty on a
+                 * description is the normal case rather than a failure: those are
+                 * exactly the searches the paid pass exists to answer. Keep waiting. */
+                renderWaiting();
+                return;
+            }
+
             el.innerHTML = '';
             el.classList.remove('concierge-working');
             restoreSections();
@@ -948,6 +978,25 @@
         timer = setTimeout(function () { run(query); }, DEBOUNCE_MS);
     }
 
+    /* Jellyfin's search box has a maxlength sized for a title, and a sentence is the
+     * whole point of this plugin.
+     *
+     * The one attribute this script sets on a node it does not own, so it only ever
+     * goes up: a narrower field would break native search, which is hard rule 2, and
+     * nothing here is worth that. An input already at least this wide is left alone. */
+    function widenInput(input) {
+        if (!input || INPUT_MAX_LENGTH <= 0) {
+            return;
+        }
+
+        var current = parseInt(input.getAttribute('maxlength'), 10);
+
+        if (isNaN(current) || current < INPUT_MAX_LENGTH) {
+            input.setAttribute('maxlength', String(INPUT_MAX_LENGTH));
+            log('raised the search box limit to', INPUT_MAX_LENGTH);
+        }
+    }
+
     /* The search input is created and destroyed as the SPA routes around, so we
      * attach to whichever one is present rather than holding a reference. */
     function attach() {
@@ -962,6 +1011,7 @@
         }
 
         toggle(page);
+        widenInput(input);
         input.dataset.conciergeBound = '1';
         input.addEventListener('input', function (e) { onInput(e.target.value); });
         input.addEventListener('keydown', function (e) {

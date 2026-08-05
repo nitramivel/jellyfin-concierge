@@ -398,6 +398,23 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public int SearchDebounceMs { get; set; } = 2000;
 
         /// <summary>
+        /// Gets or sets a character limit to raise Jellyfin's search box to. Zero
+        /// leaves it untouched.
+        /// </summary>
+        /// <remarks>
+        /// Jellyfin's search input carries a <c>maxlength</c> sized for typing a title,
+        /// which truncates a sentence mid-word — and a sentence is the entire premise
+        /// of this plugin.
+        /// <para>
+        /// <b>This is the one place the client touches an attribute on a node it does
+        /// not own,</b> so it is deliberately one-directional: the limit is only ever
+        /// raised, never lowered. Narrowing a field that native search shares would
+        /// break searches that have nothing to do with Concierge, which is hard rule 2.
+        /// </para>
+        /// </remarks>
+        public int SearchInputMaxLength { get; set; }
+
+        /// <summary>
         /// Whether to hide Jellyfin Enhanced's Jellyseerr icon so Concierge's can take
         /// that corner of the search box.
         /// </summary>
