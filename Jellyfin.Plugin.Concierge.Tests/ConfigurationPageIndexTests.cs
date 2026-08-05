@@ -40,17 +40,6 @@ namespace Jellyfin.Plugin.Concierge.Tests
         }
 
         /// <summary>
-        /// A setting is only real once it is on the page, read into the form, and
-        /// written back out.
-        /// </summary>
-        /// <remarks>
-        /// Stored configuration beats code defaults on this plugin: changing a default
-        /// in <c>PluginConfiguration</c> does nothing to a live install, because the
-        /// saved XML is what the server reads. So a field with an input but no save
-        /// line is not a small bug — it is a setting that silently cannot be changed,
-        /// and it looks completely normal in the browser.
-        /// </remarks>
-        /// <summary>
         /// A profile page must say which passes the profile actually runs.
         /// </summary>
         /// <remarks>
@@ -83,8 +72,20 @@ namespace Jellyfin.Plugin.Concierge.Tests
             Assert.DoesNotContain("\\u2014 in use", Page, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// A setting is only real once it is on the page, read into the form, and
+        /// written back out.
+        /// </summary>
+        /// <remarks>
+        /// Stored configuration beats code defaults on this plugin: changing a default
+        /// in <c>PluginConfiguration</c> does nothing to a live install, because the
+        /// saved XML is what the server reads. So a field with an input but no save
+        /// line is not a small bug — it is a setting that silently cannot be changed,
+        /// and it looks completely normal in the browser.
+        /// </remarks>
         [Theory]
         [InlineData("EnrichmentConcurrency")]
+        [InlineData("QuoteWindowWords")]
         [InlineData("EnrichmentBatchSize")]
         [InlineData("EmbeddingBatchSize")]
         [InlineData("MaxOutputTokens")]

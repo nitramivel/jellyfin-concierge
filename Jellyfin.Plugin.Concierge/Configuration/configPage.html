@@ -803,6 +803,17 @@
                         </div>
                     </div>
 
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="QuoteWindowWords">Words of context around a matched line</label>
+                        <input id="QuoteWindowWords" type="number" step="1" min="5" max="200" class="emby-input" />
+                        <div class="fieldDescription">
+                            How much of the surrounding dialogue a quote match carries with it. Too little and a
+                            matched line has no context to recognise it by; too much and every result reads the
+                            same. This has always been a real setting &mdash; it decides what a quote search
+                            returns &mdash; but until now there was nowhere to change it.
+                        </div>
+                    </div>
+
                     <div class="checkboxContainer checkboxContainer-withDescription">
                         <label class="emby-checkbox-label">
                             <input is="emby-checkbox" type="checkbox" id="EnableLyricSearch" />
@@ -1388,6 +1399,7 @@
                 page.querySelector('#MaxMomentsPerItem').value = config.MaxMomentsPerItem || 6;
                 page.querySelector('#EnrichmentBatchSize').value = config.EnrichmentBatchSize || 12;
                 page.querySelector('#EnrichmentConcurrency').value = config.EnrichmentConcurrency || 1;
+                page.querySelector('#QuoteWindowWords').value = config.QuoteWindowWords || 40;
                 page.querySelector('#EmbeddingBatchSize').value = config.EmbeddingBatchSize || 64;
                 page.querySelector('#MaxResults').value = config.MaxResults || 40;
 
@@ -1452,6 +1464,7 @@
                     config.MaxMomentsPerItem = parseInt(page.querySelector('#MaxMomentsPerItem').value, 10) || 6;
                     config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
                     config.EnrichmentConcurrency = parseInt(page.querySelector('#EnrichmentConcurrency').value, 10) || 1;
+                    config.QuoteWindowWords = parseInt(page.querySelector('#QuoteWindowWords').value, 10) || 40;
                     config.EmbeddingBatchSize = parseInt(page.querySelector('#EmbeddingBatchSize').value, 10) || 64;
                     config.MaxResults = parseInt(page.querySelector('#MaxResults').value, 10) || 40;
 
