@@ -999,44 +999,47 @@ namespace Jellyfin.Plugin.Concierge.Api
             CancellationToken cancellationToken)
             => Ok(await _quotes.LoadCoverageAsync(cancellationToken).ConfigureAwait(false));
 
-        private static Configuration.PluginConfiguration CloneWithLimit(
+        /// <summary>
+        /// The configuration with one result count replaced, for a request that asked
+        /// for a different number.
+        /// </summary>
+        /// <param name="config">The saved configuration.</param>
+        /// <param name="limit">The count this request asked for.</param>
+        /// <returns>A copy that differs only in <see cref="Configuration.PluginConfiguration.MaxResults"/>.</returns>
+        /// <remarks>
+        /// <b>Copied by reflection, deliberately, rather than field by field.</b> This
+        /// was a hand-written list and it had drifted to 29 of 45 settings — so every
+        /// search from the web client, which always sends a limit, silently ran on the
+        /// code defaults for the other sixteen. Among them the whole re-rank shape:
+        /// how many entries to ask for, how many get a reason, how long a reason may
+        /// be, its output cap and its thinking mode.
+        /// <para>
+        /// Nobody had noticed because the values that mattered happened to equal their
+        /// defaults. A setting that cannot take effect and cannot be observed failing
+        /// is the worst kind, and a list that has to be extended by hand every time a
+        /// setting is added will drift again. This cannot.
+        /// </para>
+        /// <para>
+        /// A shallow copy, so a per-request limit never mutates the shared
+        /// configuration every other request is reading.
+        /// </para>
+        /// </remarks>
+        internal static Configuration.PluginConfiguration CloneWithLimit(
             Configuration.PluginConfiguration config,
             int limit)
         {
-            // A shallow copy so a per-request limit cannot mutate the shared
-            // configuration object every other request is reading.
-            return new Configuration.PluginConfiguration
+            var copy = new Configuration.PluginConfiguration();
+
+            foreach (var property in typeof(Configuration.PluginConfiguration).GetProperties())
             {
-                ModelProfiles = config.ModelProfiles,
-                EmbeddingProfiles = config.EmbeddingProfiles,
-                DefaultModelProfileId = config.DefaultModelProfileId,
-                DefaultEmbeddingProfileId = config.DefaultEmbeddingProfileId,
-                PlanModelProfileId = config.PlanModelProfileId,
-                RerankModelProfileId = config.RerankModelProfileId,
-                EnrichmentModelProfileId = config.EnrichmentModelProfileId,
-                EmbeddingProfileId = config.EmbeddingProfileId,
-                EnableThinking = config.EnableThinking,
-                MaxOutputTokens = config.MaxOutputTokens,
-                IncludeEpisodes = config.IncludeEpisodes,
-                EnableEnrichment = config.EnableEnrichment,
-                EnrichmentBatchSize = config.EnrichmentBatchSize,
-                MaxAsksPerItem = config.MaxAsksPerItem,
-                EmbeddingBatchSize = config.EmbeddingBatchSize,
-                MaxResults = limit,
-                EnablePlanPass = config.EnablePlanPass,
-                EnableRerankPass = config.EnableRerankPass,
-                RerankShortlistSize = config.RerankShortlistSize,
-                MonthlyBudgetUsd = config.MonthlyBudgetUsd,
-                EnrichmentBudgetUsd = config.EnrichmentBudgetUsd,
-                PaidQueriesPerUserPerHour = config.PaidQueriesPerUserPerHour,
-                QueryCacheSize = config.QueryCacheSize,
-                EnableQuoteSearch = config.EnableQuoteSearch,
-                QuoteIncludeEpisodes = config.QuoteIncludeEpisodes,
-                SubtitleLanguage = config.SubtitleLanguage,
-                QuoteWindowWords = config.QuoteWindowWords,
-                EnableLyricSearch = config.EnableLyricSearch,
-                LogQueryText = config.LogQueryText,
-            };
+                if (property.CanRead && property.CanWrite)
+                {
+                    property.SetValue(copy, property.GetValue(config));
+                }
+            }
+
+            copy.MaxResults = limit;
+            return copy;
         }
     }
 }
