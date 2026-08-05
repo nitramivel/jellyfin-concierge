@@ -106,7 +106,24 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
                 }
                 catch (Exception ex) when (ex is FormatException or JsonException)
                 {
-                    // Unreadable. The fused order below is a perfectly good answer.
+                    // Not valid JSON as a whole — but the entries before the break
+                    // usually are, and each one is a complete statement on its own.
+                    foreach (var entry in Salvage(responseText))
+                    {
+                        if (entry.Index < 0 || entry.Index >= shortlistSize)
+                        {
+                            invented++;
+                            continue;
+                        }
+
+                        if (seen[entry.Index])
+                        {
+                            continue;
+                        }
+
+                        seen[entry.Index] = true;
+                        placed.Add(new RerankedItem(entry.Index, entry.Why));
+                    }
                 }
             }
 
@@ -124,6 +141,107 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
             }
 
             return new RerankOutcome(placed, placed.Count - omitted, omitted, invented);
+        }
+
+
+        /// <summary>
+        /// Reads whatever complete <c>{"i":…}</c> entries a malformed response contains.
+        /// </summary>
+        /// <param name="text">The raw model output.</param>
+        /// <returns>The entries that were finished, in the order they were written.</returns>
+        /// <remarks>
+        /// <b>Not JSON repair.</b> Nothing is invented, closed or guessed: this walks the
+        /// text collecting brace-balanced objects and parses each one on its own,
+        /// discarding anything unfinished. An entry either was fully written or it is
+        /// ignored.
+        /// <para>
+        /// It exists because a model that cannot be constrained will eventually stop
+        /// mid-object, and one unclosed brace should not discard the nine rankings
+        /// before it. Observed against an OpenAI-compatible endpoint that rejects
+        /// <c>response_format</c> outright — <c>finish_reason: "stop"</c>, 146 tokens of
+        /// a 4,000 cap, and the last entry left open. The strict parse yielded nothing;
+        /// nine entries were sitting there complete.
+        /// </para>
+        /// <para>
+        /// Consistent with hard rule 7 either way: what is not read keeps the position
+        /// retrieval already gave it.
+        /// </para>
+        /// </remarks>
+        private static List<(int Index, string Why)> Salvage(string text)
+        {
+            var found = new List<(int, string)>();
+
+            // A stack, not a depth counter: the entries are nested inside the object
+            // that failed to close, so waiting for depth to return to zero finds only
+            // the broken outer object and never the good ones inside it.
+            var starts = new Stack<int>();
+            var inString = false;
+            var escaped = false;
+
+            for (var i = 0; i < text.Length; i++)
+            {
+                var c = text[i];
+
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+
+                if (inString)
+                {
+                    if (c == '\\')
+                    {
+                        escaped = true;
+                    }
+                    else if (c == '"')
+                    {
+                        inString = false;
+                    }
+
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = true;
+                }
+                else if (c == '{')
+                {
+                    starts.Push(i);
+                }
+                else if (c == '}' && starts.Count > 0)
+                {
+                    var start = starts.Pop();
+
+                    // Every object that closes is a candidate, at any depth. The outer
+                    // one names no index and is ignored on its own merits.
+                    TryAdd(text[start..(i + 1)], found);
+                }
+            }
+
+            return found;
+        }
+
+        /// <summary>Parses one candidate object, keeping it only if it names an index.</summary>
+        /// <param name="candidate">The brace-balanced text.</param>
+        /// <param name="found">Where a usable entry is added.</param>
+        private static void TryAdd(string candidate, List<(int, string)> found)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(candidate);
+                var index = ReadIndex(document.RootElement);
+
+                if (index is not null)
+                {
+                    found.Add((index.Value, ReadWhy(document.RootElement)));
+                }
+            }
+            catch (JsonException)
+            {
+                // The outer object, or a fragment. Neither is an entry.
+            }
         }
 
         private static int? ReadIndex(JsonElement entry)
