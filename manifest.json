@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.34.0.0",
+        "changelog": "Adds a fallback model: when a search's model fails outright, the same request is tried once on another profile before settling for the unranked order. Four different failures hit this install in two days \u2014 a rejected request, an unreachable endpoint, an unreadable response and one that never answered \u2014 and each one silently cost the pass that was paid for. Point it at a different provider; a fallback sharing an outage with the primary is a slower way to fail. Fixes a per-request result limit quietly discarding most of your settings: the web client always sends one, and the copy it went through carried 29 of 45, so the whole re-rank shape ran on code defaults regardless of what you saved. On the search page, the loading cards now stay up while the paid answer is still coming instead of collapsing into 'no results', and Jellyfin's 'no results found' line is hidden whenever Concierge has matches rather than only in Concierge mode. Opening a Library item no longer scrolls the list to the top. The search box character limit is settable, so a sentence is not truncated mid-word. Cost fields accept any number and the search delay moves in 100ms steps. Folds in 0.32.0.0.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.34.0.0/concierge_0.34.0.0.zip",
+        "checksum": "bcff9d4061e8f4505d4b12d5b10796ca",
+        "timestamp": "2026-08-05T19:15:07Z"
+      },
+      {
         "version": "0.33.0.0",
         "changelog": "Makes the OpenAI-compatible option actually usable, and takes about a third off a search. Compatible servers that send null where OpenAI sends an object no longer crash the response parser \u2014 one such server cost every re-rank it was pointed at. A response that stops mid-entry now keeps the entries it finished rather than discarding all of them: one unclosed brace was throwing away nine complete rankings, which matters because some endpoints refuse constrained decoding outright and will do this. The re-rank is asked for as many entries as you display rather than a fixed twenty, which on a ten-result page is roughly 440ms and half the pass's bill; set 'Ranked entries to ask for' to 20 to restore the old behaviour exactly. The re-rank also has its own output cap now, separate from enrichment's \u2014 the shared one let a single search emit 29,982 tokens and run for 102 seconds. Opening an item in the Library list no longer scrolls the list back to the top. Every cost field accepts any number, where the steppers had made some real provider prices impossible to enter. Folds in 0.32.0.0.",
         "targetAbi": "10.11.11.0",
