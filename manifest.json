@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.30.0.0",
-        "changelog": "A thinking budget you can set per model profile (Models tab, Google only). Most Gemini models accept a budget of 0 and stop reasoning; a few reject 0 outright and fail every request, and the plugin then had to find what they would take by being refused \u2014 two wasted round trips before every useful one. A number here is sent first and 0 is never offered, and it bounds the reasoning, which giving up and dropping the limit does not: unbounded, gemini-3.6-flash spent 1,178 of 1,445 output tokens thinking on a single re-rank. What a model accepts is now remembered against the model rather than rediscovered on every search, and every step of that negotiation is logged \u2014 it used to be completely silent. Two settings-page corrections: 'Default embedding' is gone, because there is exactly one embedding consumer and the two controls could only ever mean the same thing while letting you change the one that did nothing, and profile dropdowns are alphabetised. 'Words of context around a matched line' has always decided what a quote search returns and until now there was nowhere to change it. Folds in 0.29.0.0.",
+        "version": "0.31.0.0",
+        "changelog": "Fixes a thinking budget being discarded the moment you set one. The level a Gemini model had agreed to was remembered by its position in a list whose shape depends on your configuration, so saving a budget silently reinterpreted it \u2014 observed here as a model going straight back to unbounded reasoning on the first search after the setting was configured. It now remembers the number itself. Adds Forget this item to the Library tab: it drops what Concierge stored about one item so the next index build reads it again from scratch. Your library is not touched. Builds reuse enrichment by source hash, which is what makes an unchanged nightly run cost nothing and also why a wrong answer is permanent \u2014 nothing about the file changed, so nothing ever re-asks. Forgetting is free; the next build pays to enrich it. That is the opposite of Ask again, which spends now and leaves the index alone. Folds in 0.30.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.30.0.0/concierge_0.30.0.0.zip",
-        "checksum": "e0b4f7c903a44724e668f5f9164b6f73",
-        "timestamp": "2026-08-05T08:50:38Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.31.0.0/concierge_0.31.0.0.zip",
+        "checksum": "d35d402ec18409f8f3f900339f13b3ab",
+        "timestamp": "2026-08-05T10:36:48Z"
       },
       {
         "version": "0.18.0.0",
