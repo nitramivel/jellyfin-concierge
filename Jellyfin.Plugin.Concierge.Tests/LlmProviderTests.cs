@@ -477,3 +477,59 @@ namespace Jellyfin.Plugin.Concierge.Tests
             """;
     }
 }
+
+namespace Jellyfin.Plugin.Concierge.Tests
+{
+    /// <summary>
+    /// An OpenAI-compatible server that emits nulls where OpenAI emits objects must
+    /// still parse.
+    /// </summary>
+    /// <remarks>
+    /// <c>JsonElement.TryGetProperty</c> throws rather than returning false when called
+    /// on a JSON <c>null</c>, so present-but-null is not the same as absent — and these
+    /// servers implement OpenAI's shape rather than OpenAI's code. Observed against a
+    /// compatible endpoint: "The requested operation requires an element of type
+    /// 'Object', but the target element has type 'Null'", which cost the re-rank and
+    /// left the search on its fused order.
+    /// </remarks>
+    public class CompatibleEndpointNullTolerationTests
+    {
+        private static readonly LlmRequest Request =
+            new("system", "prefix", "suffix", 800, ResponseShape.Rerank);
+
+        private static readonly TimeSpan NoDelay = TimeSpan.FromMilliseconds(1);
+
+        [Theory]
+        // usage omitted entirely — the minimal server
+        [InlineData("""{"choices":[{"message":{"content":"answer"},"finish_reason":"stop"}]}""")]
+        // usage present but null — the case that broke
+        [InlineData("""{"choices":[{"message":{"content":"answer"}}],"usage":null}""")]
+        // the detail blocks null rather than absent
+        [InlineData("""{"choices":[{"message":{"content":"answer"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"prompt_tokens_details":null,"completion_tokens_details":null}}""")]
+        // finish_reason null, which plenty of servers do while streaming is off
+        [InlineData("""{"choices":[{"message":{"content":"answer"},"finish_reason":null}],"usage":null}""")]
+        public async Task ANullWhereOpenAiSendsAnObject_StillParses(string body)
+        {
+            using var client = new HttpClient(new StubHandler(body));
+            var provider = OpenAiChatProvider.CreateCompatible(client, "celeris-1", "http://localhost/v1", null);
+
+            var result = await provider.CompleteAsync(Request, CancellationToken.None);
+
+            Assert.Equal("answer", result.Text);
+        }
+
+        [Fact]
+        public async Task AMessageThatIsNull_YieldsNoTextRatherThanThrowing()
+        {
+            // A refusal or a tool-call-only turn. Empty text is a parse failure the
+            // re-rank already knows how to survive; an exception is not.
+            using var client = new HttpClient(new StubHandler(
+                """{"choices":[{"message":null,"finish_reason":"stop"}],"usage":null}"""));
+            var provider = OpenAiChatProvider.CreateCompatible(client, "celeris-1", "http://localhost/v1", null);
+
+            var result = await provider.CompleteAsync(Request, CancellationToken.None);
+
+            Assert.Equal(string.Empty, result.Text);
+        }
+    }
+}

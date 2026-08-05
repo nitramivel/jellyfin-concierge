@@ -212,6 +212,37 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             return message.Contains("reasoning_effort", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Reads a named property, treating JSON <c>null</c> and non-objects as absent.
+        /// </summary>
+        /// <param name="element">The element to read from.</param>
+        /// <param name="name">The property name.</param>
+        /// <param name="value">The property, when it is really there.</param>
+        /// <returns>Whether a usable value was found.</returns>
+        /// <remarks>
+        /// <b><c>JsonElement.TryGetProperty</c> throws rather than returning false when
+        /// the element it is called on is JSON <c>null</c>.</b> So the difference
+        /// between a field being absent and being present-but-null is the difference
+        /// between a parsed response and an <c>InvalidOperationException</c> — and
+        /// OpenAI-compatible servers vary on exactly that. Observed here: a re-rank
+        /// against a compatible endpoint failed with "The requested operation requires
+        /// an element of type 'Object', but the target element has type 'Null'".
+        /// <para>
+        /// The spec these servers implement is OpenAI's shape, not OpenAI's code, and
+        /// <c>usage</c>, <c>message</c> and the two <c>*_details</c> blocks are all
+        /// routinely emitted as null. Reading them defensively is the price of the
+        /// word "compatible".
+        /// </para>
+        /// </remarks>
+        private static bool TryRead(JsonElement element, string name, out JsonElement value)
+        {
+            value = default;
+
+            return element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty(name, out value)
+                && value.ValueKind != JsonValueKind.Null;
+        }
+
         private async Task<LlmResult> SendAsync(LlmRequest request, CancellationToken cancellationToken)
         {
             var payload = BuildRequestBody(request);
@@ -249,19 +280,19 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
 
             var text = string.Empty;
             string? finishReason = null;
-            if (root.TryGetProperty("choices", out var choices)
+            if (TryRead(root, "choices", out var choices)
                 && choices.ValueKind == JsonValueKind.Array
                 && choices.GetArrayLength() > 0)
             {
                 var choice = choices[0];
-                if (choice.TryGetProperty("message", out var responseMessage)
-                    && responseMessage.TryGetProperty("content", out var content)
+                if (TryRead(choice, "message", out var responseMessage)
+                    && TryRead(responseMessage, "content", out var content)
                     && content.ValueKind == JsonValueKind.String)
                 {
                     text = content.GetString() ?? string.Empty;
                 }
 
-                if (choice.TryGetProperty("finish_reason", out var finish))
+                if (TryRead(choice, "finish_reason", out var finish))
                 {
                     finishReason = finish.GetString();
                 }
@@ -271,28 +302,28 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             long outputTokens = 0;
             long cachedTokens = 0;
             long reasoningTokens = 0;
-            if (root.TryGetProperty("usage", out var usage))
+            if (TryRead(root, "usage", out var usage))
             {
-                if (usage.TryGetProperty("prompt_tokens", out var prompt))
+                if (TryRead(usage, "prompt_tokens", out var prompt))
                 {
                     promptTokens = prompt.GetInt64();
                 }
 
-                if (usage.TryGetProperty("completion_tokens", out var completion))
+                if (TryRead(usage, "completion_tokens", out var completion))
                 {
                     outputTokens = completion.GetInt64();
                 }
 
                 // Optional detail blocks. Absent on plain OpenAI-compatible servers,
                 // present on OpenAI and xAI.
-                if (usage.TryGetProperty("prompt_tokens_details", out var promptDetails)
-                    && promptDetails.TryGetProperty("cached_tokens", out var cached))
+                if (TryRead(usage, "prompt_tokens_details", out var promptDetails)
+                    && TryRead(promptDetails, "cached_tokens", out var cached))
                 {
                     cachedTokens = cached.GetInt64();
                 }
 
-                if (usage.TryGetProperty("completion_tokens_details", out var completionDetails)
-                    && completionDetails.TryGetProperty("reasoning_tokens", out var reasoning))
+                if (TryRead(usage, "completion_tokens_details", out var completionDetails)
+                    && TryRead(completionDetails, "reasoning_tokens", out var reasoning))
                 {
                     reasoningTokens = reasoning.GetInt64();
                 }
