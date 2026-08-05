@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using Microsoft.Extensions.Logging;
 using Jellyfin.Plugin.Concierge.Configuration;
 using Jellyfin.Plugin.Concierge.Core.Llm;
 
@@ -44,10 +45,12 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         public const string HttpClientName = "ConciergeLlm";
 
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ILoggerFactory? _loggerFactory;
 
-        public LlmProviderFactory(IHttpClientFactory httpClientFactory)
+        public LlmProviderFactory(IHttpClientFactory httpClientFactory, ILoggerFactory? loggerFactory = null)
         {
             _httpClientFactory = httpClientFactory;
+            _loggerFactory = loggerFactory;
         }
 
         /// <summary>
@@ -113,7 +116,10 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                         profile.Model,
                         profile.ApiKey,
                         NullIfEmpty(profile.BaseUrl),
-                        enableThinking);
+                        enableThinking,
+                        initialRetryDelay: null,
+                        configuredThinkingBudget: profile.ThinkingBudget,
+                        logger: _loggerFactory?.CreateLogger<GoogleProvider>());
 
                 case LlmProviderKind.Grok:
                     RequireApiKey(profile);

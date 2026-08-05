@@ -79,6 +79,24 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public ThinkingMode Thinking { get; set; } = ThinkingMode.Inherit;
 
         /// <summary>
+        /// Gets or sets the reasoning budget to ask this model for when thinking is
+        /// off. Negative means work it out.
+        /// </summary>
+        /// <remarks>
+        /// Google only. Most Gemini models take <c>thinkingBudget: 0</c> and stop
+        /// reasoning; some refuse zero outright and fail the whole request, and the
+        /// provider then has to discover what they will take by being rejected — two
+        /// wasted round trips before the first useful one.
+        /// <para>
+        /// Setting a number here skips that discovery: it is sent first and zero is
+        /// never offered. It also bounds the reasoning, which the fallback of dropping
+        /// the field does not — measured on gemini-3.6-flash, unbounded reasoning was
+        /// 1,178 of 1,445 output tokens on a re-rank.
+        /// </para>
+        /// </remarks>
+        public int ThinkingBudget { get; set; } = -1;
+
+        /// <summary>
         /// Gets or sets this profile's input price in USD per million tokens, used
         /// for the per-query cost line. 0 logs token counts without cost.
         /// </summary>

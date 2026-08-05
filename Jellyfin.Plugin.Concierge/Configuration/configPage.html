@@ -314,13 +314,17 @@
                                 </td>
                                 <td><select is="emby-select" id="EmbeddingProfileId" class="emby-select-withcolor emby-select"></select></td>
                             </tr>
-                            <tr>
-                                <td><label for="DefaultEmbeddingProfileId">Default embedding</label></td>
-                                <td>
-                                    The embedding profile used when the row above is left on the default.
-                                </td>
-                                <td><select is="emby-select" id="DefaultEmbeddingProfileId" class="emby-select-withcolor emby-select"></select></td>
-                            </tr>
+                            <!-- "Default embedding" used to sit here, and it could not
+                                 mean anything. A default exists so several passes can
+                                 fall back to it, and there is exactly one embedding
+                                 consumer — so the two settings could only ever resolve
+                                 to the same value, while letting you change the losing
+                                 one and see nothing happen. Worse than idle: the
+                                 embedding model is part of the index's identity (hard
+                                 rule 9), so a change that silently does not apply is a
+                                 rebuild you think you asked for and did not get.
+                                 DefaultEmbeddingProfileId still exists in config and
+                                 still resolves a blank, for installs saved before this. -->
                         </tbody>
                     </table>
                 </div>
@@ -398,6 +402,21 @@
                             <label class="inputLabel inputLabelUnfocused" for="BaseUrl">Base URL</label>
                             <input id="BaseUrl" type="text" class="emby-input" placeholder="http://localhost:11434/v1" />
                             <div class="fieldDescription">Blank uses the provider's own endpoint. Required for the OpenAI-compatible option.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ProfileThinkingBudget">Thinking budget (Google only)</label>
+                            <input id="ProfileThinkingBudget" type="number" step="1" min="-1" class="emby-input" />
+                            <div class="fieldDescription">
+                                &minus;1 works it out. Most Gemini models accept a budget of 0 and stop reasoning;
+                                a few reject 0 outright and fail every request, and the plugin then has to find
+                                what they will take by being refused &mdash; two wasted round trips before each
+                                useful one, on every search. Putting the number here sends it first and never
+                                offers 0. It also <em>bounds</em> the reasoning, which giving up and dropping the
+                                limit does not: measured on gemini-3.6-flash, unbounded reasoning was 1,178 of
+                                1,445 output tokens on a single re-rank. Ignored unless the provider is Google
+                                and thinking is off.
+                            </div>
                         </div>
 
                         <div class="selectContainer">
@@ -1170,7 +1189,14 @@
                         + escapeHtml(blankLabel) + '</option>');
                 }
 
-                profiles.forEach(function (profile) {
+                // Sorted for display only. The underlying array keeps its order,
+                // because resolveDefaultId falls back to profiles[0] and reordering
+                // that would silently change which profile a blank setting means.
+                var ordered = profiles.slice().sort(function (a, b) {
+                    return describeProfile(a).localeCompare(describeProfile(b), undefined, { sensitivity: 'base' });
+                });
+
+                ordered.forEach(function (profile) {
                     var selected = profile.Id === selectedId ? ' selected' : '';
                     options.push('<option value="' + escapeHtml(profile.Id) + '"' + selected + '>'
                         + escapeHtml(describeProfile(profile)) + '</option>');
@@ -1199,6 +1225,10 @@
                 profile.ApiKey = page.querySelector('#ApiKey').value;
                 profile.BaseUrl = page.querySelector('#BaseUrl').value.trim();
                 profile.Thinking = page.querySelector('#ProfileThinking').value;
+                profile.ThinkingBudget = parseInt(page.querySelector('#ProfileThinkingBudget').value, 10);
+                if (isNaN(profile.ThinkingBudget)) {
+                    profile.ThinkingBudget = -1;
+                }
                 profile.InputCostPerMillion = parseFloat(page.querySelector('#InputCostPerMillion').value) || 0;
                 profile.CachedInputCostPerMillion = parseFloat(page.querySelector('#CachedInputCostPerMillion').value) || 0;
                 profile.OutputCostPerMillion = parseFloat(page.querySelector('#OutputCostPerMillion').value) || 0;
@@ -1253,6 +1283,10 @@
                 page.querySelector('#ApiKey').value = profile.ApiKey || '';
                 page.querySelector('#BaseUrl').value = profile.BaseUrl || '';
                 setEnumSelect(page.querySelector('#ProfileThinking'), profile.Thinking);
+                page.querySelector('#ProfileThinkingBudget').value =
+                    profile.ThinkingBudget === undefined || profile.ThinkingBudget === null
+                        ? -1
+                        : profile.ThinkingBudget;
                 page.querySelector('#InputCostPerMillion').value = profile.InputCostPerMillion || 0;
                 page.querySelector('#CachedInputCostPerMillion').value = profile.CachedInputCostPerMillion || 0;
                 page.querySelector('#OutputCostPerMillion').value = profile.OutputCostPerMillion || 0;
@@ -1285,7 +1319,6 @@
             // "follow the default", so it survives a re-render like any other.
             function renderPassSelects(page) {
                 var defaultId = page.querySelector('#DefaultModelProfileId').value;
-                var defaultEmbeddingId = page.querySelector('#DefaultEmbeddingProfileId').value;
                 var planId = page.querySelector('#PlanModelProfileId').value;
                 var rerankId = page.querySelector('#RerankModelProfileId').value;
                 var enrichmentId = page.querySelector('#EnrichmentModelProfileId').value;
@@ -1293,8 +1326,6 @@
 
                 fillProfileSelect(page.querySelector('#DefaultModelProfileId'), modelProfiles,
                     resolveDefaultId(modelProfiles, defaultId), null);
-                fillProfileSelect(page.querySelector('#DefaultEmbeddingProfileId'), embeddingProfiles,
-                    resolveDefaultId(embeddingProfiles, defaultEmbeddingId), null);
                 fillProfileSelect(page.querySelector('#PlanModelProfileId'), modelProfiles,
                     planId, 'Use the default profile');
                 fillProfileSelect(page.querySelector('#RerankModelProfileId'), modelProfiles,
@@ -1302,7 +1333,7 @@
                 fillProfileSelect(page.querySelector('#EnrichmentModelProfileId'), modelProfiles,
                     enrichmentId, 'Use the default profile');
                 fillProfileSelect(page.querySelector('#EmbeddingProfileId'), embeddingProfiles,
-                    embeddingId, 'Use the default embedding profile');
+                    resolveDefaultId(embeddingProfiles, embeddingId), null);
             }
 
             function renderAll(page) {
@@ -1325,8 +1356,6 @@
                 // DOM, so a stored assignment survives the first render.
                 fillProfileSelect(page.querySelector('#DefaultModelProfileId'), modelProfiles,
                     resolveDefaultId(modelProfiles, config.DefaultModelProfileId || ''), null);
-                fillProfileSelect(page.querySelector('#DefaultEmbeddingProfileId'), embeddingProfiles,
-                    resolveDefaultId(embeddingProfiles, config.DefaultEmbeddingProfileId || ''), null);
                 fillProfileSelect(page.querySelector('#PlanModelProfileId'), modelProfiles,
                     config.PlanModelProfileId || '', 'Use the default profile');
                 fillProfileSelect(page.querySelector('#RerankModelProfileId'), modelProfiles,
@@ -1336,7 +1365,8 @@
                 fillProfileSelect(page.querySelector('#EpisodeModelProfileId'), modelProfiles,
                     config.EpisodeModelProfileId || '', 'Use the enrichment profile');
                 fillProfileSelect(page.querySelector('#EmbeddingProfileId'), embeddingProfiles,
-                    config.EmbeddingProfileId || '', 'Use the default embedding profile');
+                    resolveDefaultId(embeddingProfiles, config.EmbeddingProfileId || config.DefaultEmbeddingProfileId || ''),
+                    null);
 
                 // Was a checkbox, is now a select of the same two states — so the
                 // stored boolean still reads correctly and nobody's saved setting
@@ -1398,7 +1428,10 @@
                     config.EmbeddingProfiles = embeddingProfiles;
 
                     config.DefaultModelProfileId = page.querySelector('#DefaultModelProfileId').value;
-                    config.DefaultEmbeddingProfileId = page.querySelector('#DefaultEmbeddingProfileId').value;
+                    // Kept in step with the one control that still exists, so a blank
+                    // EmbeddingProfileId written by an older build still resolves to the
+                    // same profile the page is showing.
+                    config.DefaultEmbeddingProfileId = page.querySelector('#EmbeddingProfileId').value;
                     config.PlanModelProfileId = page.querySelector('#PlanModelProfileId').value;
                     config.RerankModelProfileId = page.querySelector('#RerankModelProfileId').value;
                     config.EnrichmentModelProfileId = page.querySelector('#EnrichmentModelProfileId').value;

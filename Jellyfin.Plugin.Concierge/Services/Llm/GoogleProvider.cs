@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Concierge.Services.Llm
 {
@@ -29,32 +31,29 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         private readonly Uri _endpoint;
         private readonly bool _enableThinking;
 
-        /// <summary>Ask for no reasoning at all. What most Gemini models accept.</summary>
-        private const int BudgetZero = 0;
+        /// <summary>A rung meaning "send no thinkingConfig at all".</summary>
+        private const int Omit = -1;
 
-        /// <summary>Ask for the least reasoning a model that refuses zero will take.</summary>
-        private const int BudgetMinimum = 1;
-
-        /// <summary>Send nothing and let the model reason as much as it likes.</summary>
-        private const int BudgetOmitted = 2;
+        /// <summary>The fallback budget tried when a model refuses zero and none was configured.</summary>
+        private const int DefaultFallbackBudget = 128;
 
         /// <summary>
-        /// The smallest positive budget to try when zero is refused.
+        /// What this model has agreed to be asked for, remembered across providers.
         /// </summary>
         /// <remarks>
-        /// A guess, and deliberately a cheap one to be wrong about: if this value is
-        /// itself rejected the escalation simply drops the field on the next attempt,
-        /// which is where it used to go directly. The point is to try the state in
-        /// between before giving up on the setting entirely.
+        /// <b>Static because a provider does not live long enough to learn anything.</b>
+        /// The factory builds a fresh instance for every single query, so an instance
+        /// field reset on each search and the discovery was repeated forever — two
+        /// rejected round trips per re-rank, permanently, which is precisely what the
+        /// comment on the old field promised would not happen. Keyed by model, because
+        /// that is what the constraint belongs to.
         /// </remarks>
-        private const int MinimumThinkingBudget = 128;
+        private static readonly ConcurrentDictionary<string, int> AcceptedRung = new(StringComparer.Ordinal);
 
-        /// <summary>
-        /// How this model has agreed to be asked for less reasoning, learned from what
-        /// it has refused. Only ever moves up, and only after an attempt has actually
-        /// worked.
-        /// </summary>
-        private volatile int _thinkingLevel = BudgetZero;
+        /// <summary>The budgets to try, in order. The last is always <see cref="Omit"/>.</summary>
+        private readonly int[] _ladder;
+
+        private readonly ILogger<GoogleProvider>? _logger;
         private readonly TimeSpan _initialRetryDelay;
 
         /// <param name="httpClient">The HTTP client.</param>
@@ -72,8 +71,19 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             string apiKey,
             string? baseUrl = null,
             bool enableThinking = false,
-            TimeSpan? initialRetryDelay = null)
+            TimeSpan? initialRetryDelay = null,
+            int configuredThinkingBudget = -1,
+            ILogger<GoogleProvider>? logger = null)
         {
+            _logger = logger;
+
+            // A configured budget is a statement that this model takes that number, so
+            // it is tried first and zero is never sent. Left unset, the ladder starts
+            // where it always did.
+            _ladder = configuredThinkingBudget > 0
+                ? [configuredThinkingBudget, Omit]
+                : [0, DefaultFallbackBudget, Omit];
+
             _initialRetryDelay = initialRetryDelay ?? TransientHttpRetry.DefaultInitialDelay;
             ArgumentException.ThrowIfNullOrWhiteSpace(model);
             _httpClient = httpClient;
@@ -106,7 +116,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 return ParseResponse(document.RootElement);
             }
             catch (HttpRequestException ex)
-                when (!_enableThinking && _thinkingLevel < BudgetOmitted && IsBadRequest(ex.Message))
+                when (!_enableThinking && Rung() < _ladder.Length - 1 && IsBadRequest(ex.Message))
             {
                 // Not every Gemini model can be told not to think, and the ones that
                 // cannot reject the whole request rather than ignoring the field. That
@@ -124,21 +134,27 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 // accepts zero. "As little as this model allows" and "as much as it
                 // likes" are very different answers to the same setting.
                 string? body = null;
-                var reached = _thinkingLevel;
+                var reached = Rung();
 
-                for (var level = _thinkingLevel + 1; level <= BudgetOmitted; level++)
+                for (var rung = Rung() + 1; rung < _ladder.Length; rung++)
                 {
+                    _logger?.LogInformation(
+                        "Concierge: {Model} refused {Refused}; trying {Next}",
+                        ModelId,
+                        Describe(_ladder[rung - 1]),
+                        Describe(_ladder[rung]));
+
                     try
                     {
-                        body = await SendWithRetriesAsync(request, cancellationToken, level)
+                        body = await SendWithRetriesAsync(request, cancellationToken, _ladder[rung])
                             .ConfigureAwait(false);
-                        reached = level;
+                        reached = rung;
                         break;
                     }
                     catch (HttpRequestException retry)
-                        when (level < BudgetOmitted && IsBadRequest(retry.Message))
+                        when (rung < _ladder.Length - 1 && IsBadRequest(retry.Message))
                     {
-                        // Refused this step too; try the next one down.
+                        // Refused this rung too; try the next one down.
                     }
                 }
 
@@ -154,7 +170,15 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 // the first. The cost of not latching is one extra failed call per
                 // query; the cost of latching wrongly is a setting that silently stops
                 // meaning anything.
-                _thinkingLevel = reached;
+                // Remembered against the model, so the next query starts here instead
+                // of repeating the discovery. Only after an attempt has actually
+                // worked - see the note on AcceptedRung.
+                AcceptedRung[ModelId] = reached;
+
+                _logger?.LogInformation(
+                    "Concierge: {Model} accepted {Accepted}; later calls will start there",
+                    ModelId,
+                    Describe(_ladder[reached]));
 
                 using var document = JsonDocument.Parse(body);
                 return ParseResponse(document.RootElement);
@@ -174,6 +198,21 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         /// </remarks>
         /// <param name="message">The failure message.</param>
         /// <returns>Whether it was an HTTP 400.</returns>
+        /// <summary>Where this model is known to have settled, or the start of the ladder.</summary>
+        private int Rung()
+        {
+            var known = AcceptedRung.TryGetValue(ModelId, out var rung) ? rung : 0;
+            return known >= _ladder.Length ? _ladder.Length - 1 : known;
+        }
+
+        /// <summary>Names a rung for a log line somebody has to read at 3am.</summary>
+        private static string Describe(int budget) => budget switch
+        {
+            Omit => "no thinking limit at all",
+            0 => "a zero thinking budget",
+            _ => $"a thinking budget of {budget}",
+        };
+
         private static bool IsBadRequest(string message)
             => message.Contains("returned 400", StringComparison.Ordinal);
 
@@ -185,9 +224,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         private Task<string> SendWithRetriesAsync(
             LlmRequest request,
             CancellationToken cancellationToken,
-            int? thinkingLevel = null)
+            int? thinkingBudget = null)
         {
-            var payload = BuildRequestBody(request, thinkingLevel ?? _thinkingLevel);
+            var payload = BuildRequestBody(request, thinkingBudget ?? _ladder[Rung()]);
 
             return TransientHttpRetry.SendAsync(
                 _httpClient,
@@ -203,7 +242,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 cancellationToken);
         }
 
-        private object BuildRequestBody(LlmRequest request, int thinkingLevel)
+        private object BuildRequestBody(LlmRequest request, int thinkingBudget)
         {
             return new
             {
@@ -224,7 +263,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                     },
                 },
                 safetySettings = SafetySettings,
-                generationConfig = BuildGenerationConfig(request, thinkingLevel),
+                generationConfig = BuildGenerationConfig(request, thinkingBudget),
             };
         }
 
@@ -287,7 +326,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             return [.. parts];
         }
 
-        private object BuildGenerationConfig(LlmRequest request, int thinkingLevel)
+        private object BuildGenerationConfig(LlmRequest request, int thinkingBudget)
         {
             var config = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
@@ -309,12 +348,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             // setting is a yes/no. When disabled, budget 0 turns it off; note the Pro
             // models refuse a zero budget and return 400, which is the API saying the
             // same thing the plan does: leave it on for those.
-            if (!_enableThinking && thinkingLevel != BudgetOmitted)
+            if (!_enableThinking && thinkingBudget != Omit)
             {
-                config["thinkingConfig"] = new
-                {
-                    thinkingBudget = thinkingLevel == BudgetZero ? 0 : MinimumThinkingBudget,
-                };
+                config["thinkingConfig"] = new { thinkingBudget };
             }
 
             return config;

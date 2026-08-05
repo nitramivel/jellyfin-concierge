@@ -97,7 +97,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 (HttpStatusCode.OK, Ok));
 
             using var client = new HttpClient(handler);
-            var provider = new GoogleProvider(client, "gemini-3.6-flash", "key", null, false, NoDelay);
+            var provider = new GoogleProvider(client, "gemini-3.6-refuses-zero", "key", null, false, NoDelay);
 
             var result = await provider.CompleteAsync(Request, CancellationToken.None);
 
@@ -118,7 +118,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 (HttpStatusCode.OK, Ok));
 
             using var client = new HttpClient(handler);
-            var provider = new GoogleProvider(client, "gemini-3.6-flash", "key", null, false, NoDelay);
+            var provider = new GoogleProvider(client, "gemini-t-once", "key", null, false, NoDelay);
 
             await provider.CompleteAsync(Request, CancellationToken.None);
             handler.Bodies.Clear();
@@ -141,7 +141,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
             var handler = new RecordingHandler((HttpStatusCode.BadRequest, Refusal));
 
             using var client = new HttpClient(handler);
-            var provider = new GoogleProvider(client, "gemini-3.6-flash", "key", null, false, NoDelay);
+            var provider = new GoogleProvider(client, "gemini-t-unrelated", "key", null, false, NoDelay);
 
             await Assert.ThrowsAsync<HttpRequestException>(
                 () => provider.CompleteAsync(Request, CancellationToken.None));
@@ -162,7 +162,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
             var handler = new RecordingHandler((HttpStatusCode.BadRequest, Refusal));
 
             using var client = new HttpClient(handler);
-            var provider = new GoogleProvider(client, "gemini-3.6-flash", "key", null, true, NoDelay);
+            var provider = new GoogleProvider(client, "gemini-t-thinkingon", "key", null, true, NoDelay);
 
             await Assert.ThrowsAsync<HttpRequestException>(
                 () => provider.CompleteAsync(Request, CancellationToken.None));
@@ -182,7 +182,7 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 (HttpStatusCode.OK, Ok));
 
             using var client = new HttpClient(handler);
-            var provider = new GoogleProvider(client, "gemini-3.6-flash", "key", null, false, NoDelay);
+            var provider = new GoogleProvider(client, "gemini-t-working", "key", null, false, NoDelay);
 
             await provider.CompleteAsync(Request, CancellationToken.None);
 
@@ -209,6 +209,72 @@ namespace Jellyfin.Plugin.Concierge.Tests
             Assert.Equal(0, Budget(handler.Bodies[0]));
             Assert.True(Budget(handler.Bodies[1]) > 0);
             Assert.Null(Budget(handler.Bodies[2]));
+        }
+
+        [Fact]
+        public async Task AConfiguredBudget_IsSentFirstSoZeroIsNeverOffered()
+        {
+            // The point of the setting: a model known to reject zero should never be
+            // asked for it, so there is no rejected round trip to pay for at all.
+            var handler = new RecordingHandler((HttpStatusCode.OK, Ok));
+
+            using var client = new HttpClient(handler);
+            var provider = new GoogleProvider(
+                client, "gemini-3.6-configured", "key", null, false, NoDelay, configuredThinkingBudget: 512);
+
+            await provider.CompleteAsync(Request, CancellationToken.None);
+
+            Assert.Single(handler.Bodies);
+            Assert.Equal(512, Budget(handler.Bodies[0]));
+        }
+
+        [Fact]
+        public async Task AConfiguredBudgetThatIsAlsoRefused_StillFallsAllTheWayBack()
+        {
+            var handler = new RecordingHandler(
+                (HttpStatusCode.BadRequest, Refusal),
+                (HttpStatusCode.OK, Ok));
+
+            using var client = new HttpClient(handler);
+            var provider = new GoogleProvider(
+                client, "gemini-3.6-refuses-512", "key", null, false, NoDelay, configuredThinkingBudget: 512);
+
+            await provider.CompleteAsync(Request, CancellationToken.None);
+
+            Assert.Equal(2, handler.Bodies.Count);
+            Assert.Equal(512, Budget(handler.Bodies[0]));
+            Assert.Null(Budget(handler.Bodies[1]));
+        }
+
+        [Fact]
+        public async Task WhatAModelAccepts_SurvivesTheProviderThatLearnedIt()
+        {
+            // The factory builds a fresh provider for every query, so an instance field
+            // learned nothing and the discovery repeated on every single search —
+            // two rejected round trips per re-rank, permanently.
+            const string model = "gemini-3.6-shared-latch";
+
+            var first = new RecordingHandler(
+                (HttpStatusCode.BadRequest, Refusal),
+                (HttpStatusCode.OK, Ok));
+            using (var clientA = new HttpClient(first))
+            {
+                await new GoogleProvider(clientA, model, "key", null, false, NoDelay)
+                    .CompleteAsync(Request, CancellationToken.None);
+            }
+
+            Assert.Equal(2, first.Bodies.Count);
+
+            // A different provider instance, as a later search would get.
+            var second = new RecordingHandler((HttpStatusCode.OK, Ok));
+            using (var clientB = new HttpClient(second))
+            {
+                await new GoogleProvider(clientB, model, "key", null, false, NoDelay)
+                    .CompleteAsync(Request, CancellationToken.None);
+            }
+
+            Assert.Single(second.Bodies);
+            Assert.NotEqual(0, Budget(second.Bodies[0]) ?? -1);
         }
 
         [Fact]
