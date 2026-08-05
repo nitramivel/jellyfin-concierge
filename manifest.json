@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.32.0.0",
-        "changelog": "Fixes a search failing outright instead of falling back to its free results. A model call can be cancelled three ways \u2014 a query deadline, the HTTP client's own ten-minute timeout, or you navigating away \u2014 and only the last means stop. The first two used to escape the fallback and surface as 'The search request failed', for a search that had already found its keyword and semantic results and simply needed to serve them. Adds a deadline of its own: a query-time model call now has 30 seconds (settable, 0 disables) before the search gives up on it and serves what it already has, saying so rather than spinning. Index builds are unaffected. And the search now says what it is doing while it does it: each paid pass logs its model, provider, token cap and whether thinking is really on before the call, and its duration, tokens and thinking after; retrieval logs its hit counts; and a throttled call now reports the status and how long it is waiting instead of looking like a slow model. Folds in 0.31.0.0.",
+        "version": "0.33.0.0",
+        "changelog": "Makes the OpenAI-compatible option actually usable, and takes about a third off a search. Compatible servers that send null where OpenAI sends an object no longer crash the response parser \u2014 one such server cost every re-rank it was pointed at. A response that stops mid-entry now keeps the entries it finished rather than discarding all of them: one unclosed brace was throwing away nine complete rankings, which matters because some endpoints refuse constrained decoding outright and will do this. The re-rank is asked for as many entries as you display rather than a fixed twenty, which on a ten-result page is roughly 440ms and half the pass's bill; set 'Ranked entries to ask for' to 20 to restore the old behaviour exactly. The re-rank also has its own output cap now, separate from enrichment's \u2014 the shared one let a single search emit 29,982 tokens and run for 102 seconds. Opening an item in the Library list no longer scrolls the list back to the top. Every cost field accepts any number, where the steppers had made some real provider prices impossible to enter. Folds in 0.32.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.32.0.0/concierge_0.32.0.0.zip",
-        "checksum": "cdb1a314bca5470a2afc9adfdb2f8de0",
-        "timestamp": "2026-08-05T11:29:19Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.33.0.0/concierge_0.33.0.0.zip",
+        "checksum": "5108e0b6e4aeebd7c825e579004df36f",
+        "timestamp": "2026-08-05T13:19:26Z"
       },
       {
         "version": "0.18.0.0",
