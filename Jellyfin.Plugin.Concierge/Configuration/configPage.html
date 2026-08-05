@@ -435,18 +435,18 @@
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="InputCostPerMillion">Input price (USD per million tokens)</label>
-                            <input id="InputCostPerMillion" type="number" step="0.01" min="0" class="emby-input" />
+                            <input id="InputCostPerMillion" type="number" step="any" min="0" class="emby-input" />
                         </div>
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="CachedInputCostPerMillion">Cache-read price (USD per million tokens)</label>
-                            <input id="CachedInputCostPerMillion" type="number" step="0.01" min="0" class="emby-input" />
+                            <input id="CachedInputCostPerMillion" type="number" step="any" min="0" class="emby-input" />
                             <div class="fieldDescription">0 uses half this profile's input price. Cache reads are cheap, not free.</div>
                         </div>
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="OutputCostPerMillion">Output price (USD per million tokens)</label>
-                            <input id="OutputCostPerMillion" type="number" step="0.01" min="0" class="emby-input" />
+                            <input id="OutputCostPerMillion" type="number" step="any" min="0" class="emby-input" />
                         </div>
                     </div>
                 </div>
@@ -532,7 +532,7 @@
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="EmbeddingInputCostPerMillion">Price (USD per million tokens)</label>
-                            <input id="EmbeddingInputCostPerMillion" type="number" step="0.001" min="0" class="emby-input" />
+                            <input id="EmbeddingInputCostPerMillion" type="number" step="any" min="0" class="emby-input" />
                         </div>
                     </div>
                 </div>
@@ -877,7 +877,7 @@
 
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="MonthlyBudgetUsd">Monthly search budget (USD)</label>
-                        <input id="MonthlyBudgetUsd" type="number" step="0.5" min="0" class="emby-input" />
+                        <input id="MonthlyBudgetUsd" type="number" step="any" min="0" class="emby-input" />
                         <div class="fieldDescription">0 removes the cap entirely.</div>
                     </div>
 
@@ -887,6 +887,21 @@
                         <div class="fieldDescription">
                             Separate on purpose. Sharing one pot would let a first index build exhaust the month's
                             search budget on the day you installed the plugin.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="RerankReturnCount">Ranked entries to ask for</label>
+                        <input id="RerankReturnCount" type="number" step="1" min="0" max="50" class="emby-input" />
+                        <div class="fieldDescription">
+                            0 follows the result count above, which is the sensible pairing &mdash; there is no
+                            reason to rank what cannot be shown. Every entry past what you display is output
+                            generated, waited for and paid for, then discarded: measured here, a re-rank costs
+                            795&nbsp;ms fixed plus about 2&nbsp;ms a token, so asking for twenty while showing
+                            ten spent roughly 440&nbsp;ms of a two-second search on the half nobody sees.
+                            <strong>Set this to 20 to restore exactly how every release before this one
+                            behaved</strong>, which is what you want if you are comparing against an evaluation
+                            run on the old numbers.
                         </div>
                     </div>
 
@@ -1427,6 +1442,8 @@
                 page.querySelector('#EnrichmentBatchSize').value = config.EnrichmentBatchSize || 12;
                 page.querySelector('#EnrichmentConcurrency').value = config.EnrichmentConcurrency || 1;
                 page.querySelector('#QuoteWindowWords').value = config.QuoteWindowWords || 40;
+                page.querySelector('#RerankReturnCount').value =
+                    config.RerankReturnCount === undefined ? 0 : config.RerankReturnCount;
                 page.querySelector('#RerankMaxOutputTokens').value =
                     config.RerankMaxOutputTokens === undefined ? 4000 : config.RerankMaxOutputTokens;
                 page.querySelector('#QueryTimeoutSeconds').value =
@@ -1496,6 +1513,11 @@
                     config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
                     config.EnrichmentConcurrency = parseInt(page.querySelector('#EnrichmentConcurrency').value, 10) || 1;
                     config.QuoteWindowWords = parseInt(page.querySelector('#QuoteWindowWords').value, 10) || 40;
+                    config.RerankReturnCount = parseInt(page.querySelector('#RerankReturnCount').value, 10);
+                    if (isNaN(config.RerankReturnCount)) {
+                        config.RerankReturnCount = 0;
+                    }
+
                     config.RerankMaxOutputTokens =
                         parseInt(page.querySelector('#RerankMaxOutputTokens').value, 10);
                     if (isNaN(config.RerankMaxOutputTokens)) {
@@ -2510,6 +2532,10 @@
                     return;
                 }
 
+                // Kept across a re-render. Filtering and refreshing both rebuild the
+                // list, and neither is a reason to lose where you were.
+                var previousScroll = target.scrollTop;
+
                 target.innerHTML = '<div class="conciergeLib">' + shown.map(function (i) {
                     return '<div class="conciergeLibRow' + (i.ItemId === libraryOpenId ? ' is-open' : '')
                         + '" data-item="' + escapeHtml(i.ItemId) + '">'
@@ -2519,6 +2545,8 @@
                         + '<span class="conciergeLibChips">' + libraryChips(i) + '</span>'
                         + '</div>';
                 }).join('') + '</div>';
+
+                target.scrollTop = previousScroll;
 
                 Array.prototype.forEach.call(target.querySelectorAll('.conciergeLibRow'), function (row) {
                     row.addEventListener('click', function () {
@@ -2539,7 +2567,21 @@
 
             function openLibraryItem(itemId) {
                 libraryOpenId = itemId;
-                renderLibrary();
+
+                // The highlight is moved in place rather than by re-rendering. Calling
+                // renderLibrary here rebuilt every row through innerHTML, and a list
+                // that is rebuilt loses its scroll position — so opening anything below
+                // the fold on a few hundred items threw you back to the top, every
+                // time, and you had to find your place again to open the next one.
+                var list = page.querySelector('#ConciergeLibraryList');
+                if (list) {
+                    Array.prototype.forEach.call(
+                        list.querySelectorAll('.conciergeLibRow'),
+                        function (row) {
+                            row.classList.toggle('is-open', row.getAttribute('data-item') === itemId);
+                        });
+                }
+
                 showItemIn(page.querySelector('#ConciergeLibraryDetail'), itemId);
             }
 

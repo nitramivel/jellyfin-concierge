@@ -150,10 +150,17 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
             string query,
             int count,
             int whyMaxChars = 60,
-            int explainCount = 8)
+            int explainCount = 8,
+            int returnCount = DefaultReturned)
         {
             var limit = Math.Max(10, whyMaxChars);
-            var explained = explainCount <= 0 ? DefaultReturned : Math.Min(explainCount, DefaultReturned);
+
+            // Asking for more than will ever be displayed is paid-for output nobody
+            // sees: the model was asked for twenty while the page showed ten, and at
+            // ~2ms a token that is most of a second per search spent on the half that
+            // is thrown away.
+            var returned = returnCount > 0 ? returnCount : DefaultReturned;
+            var explained = explainCount <= 0 ? returned : Math.Min(explainCount, returned);
 
             return string.Create(
                 CultureInfo.InvariantCulture,
@@ -161,7 +168,7 @@ namespace Jellyfin.Plugin.Concierge.Core.Ranking
 
                 They searched for: {query}
 
-                {count} candidates above. Return at most {DefaultReturned} of them —
+                {count} candidates above. Return at most {returned} of them —
                 the ones you would actually show, best first, and no more than genuinely
                 answer the search. Returning four is a better answer than padding to
                 twenty. The rest keep the order search gave them.

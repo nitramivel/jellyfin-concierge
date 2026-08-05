@@ -266,6 +266,26 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public int RerankMaxOutputTokens { get; set; } = 4000;
 
         /// <summary>
+        /// Gets or sets how many ranked entries the re-rank pass is asked for. Zero
+        /// follows <see cref="MaxResults"/>.
+        /// </summary>
+        /// <remarks>
+        /// <b>The model was being asked for twenty while the page showed ten.</b> Every
+        /// entry past what is displayed is output generated, waited for and paid for,
+        /// and then discarded. Measured on this library: re-rank duration is
+        /// 795 ms fixed plus 1.96 ms per output token at r=0.998, so halving the
+        /// entries asked for takes roughly 440 ms off a two-second search and halves
+        /// the pass's bill.
+        /// <para>
+        /// Zero follows the result count, which is the sensible pairing — there is no
+        /// reason to rank what cannot be shown. Setting it to 20 restores exactly the
+        /// behaviour of every release before this one, for anyone who wants the old
+        /// numbers back or is comparing an evaluation against them.
+        /// </para>
+        /// </remarks>
+        public int RerankReturnCount { get; set; }
+
+        /// <summary>
         /// Gets or sets how many generated phrasings are kept per item.
         /// </summary>
         /// <remarks>

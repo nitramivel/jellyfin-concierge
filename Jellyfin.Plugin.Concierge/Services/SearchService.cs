@@ -482,6 +482,17 @@ namespace Jellyfin.Plugin.Concierge.Services
         /// Zero or negative means an install saved before this setting existed, which
         /// must keep behaving as it did rather than silently acquiring a ceiling.
         /// </remarks>
+        /// <summary>
+        /// How many entries to ask the re-rank for: the configured count, or the number
+        /// that will actually be shown.
+        /// </summary>
+        /// <param name="config">The configuration.</param>
+        /// <returns>The count to request.</returns>
+        private static int RerankReturned(PluginConfiguration config)
+            => config.RerankReturnCount > 0
+                ? config.RerankReturnCount
+                : Math.Max(1, config.MaxResults);
+
         private static int RerankCap(PluginConfiguration config)
             => config.RerankMaxOutputTokens > 0
                 ? config.RerankMaxOutputTokens
@@ -673,7 +684,8 @@ namespace Jellyfin.Plugin.Concierge.Services
                         query,
                         shortlist.Count,
                         config.RerankWhyMaxChars,
-                        config.RerankExplainCount);
+                        config.RerankExplainCount,
+                        RerankReturned(config));
 
                 var request = new LlmRequest(
                     RerankPromptBuilder.SystemPrompt,
