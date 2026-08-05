@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "0.29.0.0",
-        "changelog": "Regenerating the index no longer throws away enrichment you have already paid for \u2014 the store merges by item instead of being overwritten, which on one run here had cut 322 answers down to 131. An enrichment batch whose model spends its whole output budget reasoning and returns nothing is retried once with reasoning turned down rather than losing every item in it. Enrichment batches can run several at a time (Enrichment calls at once, default 1, unchanged behaviour until you raise it), and a new scheduled task banks enrichment without rebuilding or replacing the search index, so a long pass over episodes no longer pins search for hours. Builds are single-flight. When a model refuses a search, the search says so instead of quietly serving the free answer: forty-one straight provider failures here looked like nothing worse than poor results. Gemini models that reject a zero thinking budget are asked for the smallest one they will take rather than being let off the leash entirely. Single letters and stopword fragments no longer get promoted to the paid path. A model profile now says which passes it actually runs, and the Library tab says 'enrichment not embedded' rather than the misleading 'not indexed'. Folds in 0.28.0.0.",
+        "version": "0.30.0.0",
+        "changelog": "A thinking budget you can set per model profile (Models tab, Google only). Most Gemini models accept a budget of 0 and stop reasoning; a few reject 0 outright and fail every request, and the plugin then had to find what they would take by being refused \u2014 two wasted round trips before every useful one. A number here is sent first and 0 is never offered, and it bounds the reasoning, which giving up and dropping the limit does not: unbounded, gemini-3.6-flash spent 1,178 of 1,445 output tokens thinking on a single re-rank. What a model accepts is now remembered against the model rather than rediscovered on every search, and every step of that negotiation is logged \u2014 it used to be completely silent. Two settings-page corrections: 'Default embedding' is gone, because there is exactly one embedding consumer and the two controls could only ever mean the same thing while letting you change the one that did nothing, and profile dropdowns are alphabetised. 'Words of context around a matched line' has always decided what a quote search returns and until now there was nowhere to change it. Folds in 0.29.0.0.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.29.0.0/concierge_0.29.0.0.zip",
-        "checksum": "df9bee37c98564f788c1686968269048",
-        "timestamp": "2026-08-04T13:40:23Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.30.0.0/concierge_0.30.0.0.zip",
+        "checksum": "e0b4f7c903a44724e668f5f9164b6f73",
+        "timestamp": "2026-08-05T08:50:38Z"
       },
       {
         "version": "0.18.0.0",
