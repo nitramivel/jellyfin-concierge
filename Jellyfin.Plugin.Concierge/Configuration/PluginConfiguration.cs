@@ -74,6 +74,32 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public string RerankModelProfileId { get; set; } = string.Empty;
 
         /// <summary>
+        /// Gets or sets a profile to try when a query-time model call fails. Blank
+        /// disables it.
+        /// </summary>
+        /// <remarks>
+        /// A search has four ways to lose its paid pass and they are all real: a
+        /// provider that rejects the request outright, one that answers in a shape the
+        /// parser cannot read, one that cannot be reached, and one that never answers
+        /// at all. Each ends the same way — the fused order, which is a decent answer
+        /// and not the one that was paid for.
+        /// <para>
+        /// A fallback turns that into a second attempt on a different model. It is
+        /// tried once, only for a genuine failure, and never for a deliberate refusal:
+        /// a budget stop or a rate limit is the system working, and asking another
+        /// model would be spending money the owner has already said not to spend.
+        /// </para>
+        /// <para>
+        /// <b>The worst case is longer, not shorter.</b> A primary that hangs uses its
+        /// whole deadline before the fallback gets a fresh one, so a search can take
+        /// twice <see cref="QueryTimeoutSeconds"/> before giving up. Point this at
+        /// something on a different provider — a fallback sharing an outage with the
+        /// primary is just a slower way to fail.
+        /// </para>
+        /// </remarks>
+        public string FallbackModelProfileId { get; set; } = string.Empty;
+
+        /// <summary>
         /// Gets or sets the profile that writes each item's enrichment at index
         /// time. Runs <em>once</em> per item and should be the best model
         /// affordable: it decides what a fuzzy sentence can ever match against.

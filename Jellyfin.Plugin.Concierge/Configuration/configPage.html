@@ -276,6 +276,22 @@
                                 <td><select is="emby-select" id="RerankModelProfileId" class="emby-select-withcolor emby-select"></select></td>
                             </tr>
                             <tr>
+                                <td><label for="FallbackModelProfileId">Fallback</label></td>
+                                <td>
+                                    Tried when a search's model fails outright &mdash; rejected, unreachable,
+                                    unreadable, or never answering.
+                                    <div class="conciergePassWhen">
+                                        Search passes only, once per failure, and never for a budget stop or a
+                                        rate limit: those are the system working, and asking another model would
+                                        spend money you have already said not to spend. <strong>Point it at a
+                                        different provider</strong> &mdash; a fallback sharing an outage with the
+                                        primary is a slower way to fail. A hung primary uses its whole deadline
+                                        before this one starts, so a search can take twice the timeout.
+                                    </div>
+                                </td>
+                                <td><select is="emby-select" id="FallbackModelProfileId" class="emby-select-withcolor emby-select"></select></td>
+                            </tr>
+                            <tr>
                                 <td><label for="EnrichmentModelProfileId">Enrichment</label></td>
                                 <td>
                                     Writes what each item is about, so a description can match it at all.
@@ -1398,6 +1414,8 @@
                     rerankId, 'Use the default profile');
                 fillProfileSelect(page.querySelector('#EnrichmentModelProfileId'), modelProfiles,
                     enrichmentId, 'Use the default profile');
+                fillProfileSelect(page.querySelector('#FallbackModelProfileId'), modelProfiles,
+                    page.querySelector('#FallbackModelProfileId').value, 'No fallback');
                 fillProfileSelect(page.querySelector('#EmbeddingProfileId'), embeddingProfiles,
                     resolveDefaultId(embeddingProfiles, embeddingId), null);
             }
@@ -1428,6 +1446,8 @@
                     config.RerankModelProfileId || '', 'Use the default profile');
                 fillProfileSelect(page.querySelector('#EnrichmentModelProfileId'), modelProfiles,
                     config.EnrichmentModelProfileId || '', 'Use the default profile');
+                fillProfileSelect(page.querySelector('#FallbackModelProfileId'), modelProfiles,
+                    config.FallbackModelProfileId || '', 'No fallback');
                 fillProfileSelect(page.querySelector('#EpisodeModelProfileId'), modelProfiles,
                     config.EpisodeModelProfileId || '', 'Use the enrichment profile');
                 fillProfileSelect(page.querySelector('#EmbeddingProfileId'), embeddingProfiles,
@@ -1509,6 +1529,7 @@
                     config.PlanModelProfileId = page.querySelector('#PlanModelProfileId').value;
                     config.RerankModelProfileId = page.querySelector('#RerankModelProfileId').value;
                     config.EnrichmentModelProfileId = page.querySelector('#EnrichmentModelProfileId').value;
+                    config.FallbackModelProfileId = page.querySelector('#FallbackModelProfileId').value;
                     config.EpisodeModelProfileId = page.querySelector('#EpisodeModelProfileId').value;
                     config.EmbeddingProfileId = page.querySelector('#EmbeddingProfileId').value;
 

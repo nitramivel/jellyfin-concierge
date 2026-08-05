@@ -326,7 +326,12 @@ namespace Jellyfin.Plugin.Concierge.Services
                 if (documents.Count == shortlist.Count)
                 {
                     var outcome = await RunRerankAsync(
-                            e => degraded ??= "the re-ranking model is not answering — " + e,
+                            // Overwrites rather than defers. Anything already here is a
+                            // standing statement about configuration — "the plan pass
+                            // is switched off" — while this is something that happened
+                            // during this search, on this query, and is the one worth
+                            // reading. It was being swallowed by the config note.
+                            e => degraded = e,
                             query, documents, config, normalized, calls, cancellationToken)
                         .ConfigureAwait(false);
 
@@ -521,6 +526,138 @@ namespace Jellyfin.Plugin.Concierge.Services
         private static bool NotTheCallersDoing(CancellationToken caller)
             => !caller.IsCancellationRequested;
 
+        /// <summary>What a pass got, and from which model.</summary>
+        /// <param name="Result">The completion.</param>
+        /// <param name="Profile">The profile that actually answered.</param>
+        /// <param name="ModelId">Its model id, for the call record.</param>
+        /// <param name="Timer">How long the attempt that answered took.</param>
+        /// <param name="FellBackFrom">The model that failed first, or null.</param>
+        private sealed record PassResult(
+            LlmResult Result,
+            ModelProfile Profile,
+            string ModelId,
+            Stopwatch Timer,
+            string? FellBackFrom);
+
+        /// <summary>
+        /// Runs one paid pass, trying the fallback profile if the first model fails.
+        /// </summary>
+        /// <param name="pass">Which pass, for the thinking decision.</param>
+        /// <param name="label">"plan pass" or "re-rank", for the log.</param>
+        /// <param name="primary">The profile configured for this pass.</param>
+        /// <param name="request">The request, identical for either model.</param>
+        /// <param name="config">The configuration.</param>
+        /// <param name="normalized">The one Normalize result both passes share.</param>
+        /// <param name="cancellationToken">The caller's token.</param>
+        /// <returns>Whichever model answered.</returns>
+        /// <remarks>
+        /// The fallback gets a <em>fresh</em> deadline rather than what is left of the
+        /// first one, because the failure most worth surviving is a model that never
+        /// answers — and by then there is nothing left to share. The cost is stated
+        /// plainly on the setting: a search can take twice the timeout before it gives
+        /// up on both.
+        /// <para>
+        /// Only genuine failures qualify. A caller who has gone away is not a failure
+        /// and there is nobody to answer; a budget stop or rate limit never reaches
+        /// here at all, because those are decided before a provider is created.
+        /// </para>
+        /// </remarks>
+        private async Task<PassResult> RunPassAsync(
+            ThinkingPass pass,
+            string label,
+            ModelProfile primary,
+            LlmRequest request,
+            PluginConfiguration config,
+            ModelProfiles.NormalizedProfiles normalized,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                using var deadline = QueryDeadline(config, cancellationToken);
+                return await AttemptAsync(pass, label, primary, request, config, null, deadline.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (NotTheCallersDoing(cancellationToken))
+            {
+                var fallback = Fallback(config, normalized, primary);
+
+                if (fallback is null)
+                {
+                    throw;
+                }
+
+                _logger.LogWarning(
+                    "Concierge: {Label} failed on {Model} ({Reason}); trying the fallback {Fallback}",
+                    label,
+                    primary.Model,
+                    Describe(ex),
+                    fallback.Model);
+
+                using var second = QueryDeadline(config, cancellationToken);
+                return await AttemptAsync(pass, label, fallback, request, config, primary.Model, second.Token)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>One attempt on one profile, said out loud before and after.</summary>
+        private async Task<PassResult> AttemptAsync(
+            ThinkingPass pass,
+            string label,
+            ModelProfile profile,
+            LlmRequest request,
+            PluginConfiguration config,
+            string? fellBackFrom,
+            CancellationToken token)
+        {
+            var thinking = ThinkingPolicy.For(config, pass, profile);
+            var provider = _llmFactory.Create(profile, thinking);
+
+            // Logged before the call, not after. A line that only appears on completion
+            // cannot tell you where a search is stuck, which is the one question worth
+            // asking while it is still running.
+            _logger.LogInformation(
+                "Concierge: {Label} calling {Model} ({Provider}), cap {Cap} tokens, thinking {Thinking}",
+                label,
+                provider.ModelId,
+                profile.Provider,
+                request.MaxOutputTokens,
+                thinking ? "on" : "off");
+
+            var stopwatch = Stopwatch.StartNew();
+            var result = await provider.CompleteAsync(request, token).ConfigureAwait(false);
+            stopwatch.Stop();
+
+            _logger.LogInformation(
+                "Concierge: {Label} answered in {Ms}ms — {Out} token(s), {Think} thinking, truncated {Trunc}",
+                label,
+                stopwatch.ElapsedMilliseconds,
+                result.OutputTokens,
+                result.ThinkingTokens,
+                result.Truncated);
+
+            return new PassResult(result, profile, provider.ModelId, stopwatch, fellBackFrom);
+        }
+
+        /// <summary>The fallback profile, or null when there is none worth trying.</summary>
+        /// <remarks>
+        /// A fallback that resolves to the model which just failed is not a fallback,
+        /// and asking it again is a second identical failure at the same price.
+        /// </remarks>
+        private static ModelProfile? Fallback(
+            PluginConfiguration config,
+            ModelProfiles.NormalizedProfiles normalized,
+            ModelProfile primary)
+        {
+            if (string.IsNullOrWhiteSpace(config.FallbackModelProfileId))
+            {
+                return null;
+            }
+
+            var fallback = ModelProfiles.Resolve(normalized, config.FallbackModelProfileId);
+
+            return string.Equals(fallback.Id, primary.Id, StringComparison.Ordinal) ? null : fallback;
+        }
+
         private async Task<(SearchPlan Plan, string? Error)> RunPlanAsync(
             string query,
             PluginConfiguration config,
@@ -528,15 +665,10 @@ namespace Jellyfin.Plugin.Concierge.Services
             List<QueryCallRecord> calls,
             CancellationToken cancellationToken)
         {
-            using var deadline = QueryDeadline(config, cancellationToken);
-
             try
             {
                 // Hard rule 12: both passes resolve from this one Normalize result.
                 var profile = ModelProfiles.Resolve(normalized, config.PlanModelProfileId);
-                var provider = _llmFactory.Create(
-                    profile,
-                    ThinkingPolicy.For(config, ThinkingPass.Plan, profile));
 
                 var request = new LlmRequest(
                     PlanPromptBuilder.SystemPrompt,
@@ -545,28 +677,17 @@ namespace Jellyfin.Plugin.Concierge.Services
                     Math.Min(config.MaxOutputTokens, 800),
                     ResponseShape.SearchPlan);
 
-                // Logged before the call, not after. A line that only appears on
-                // completion cannot tell you where a search is stuck, which is the one
-                // question worth asking while it is still running.
-                _logger.LogInformation(
-                    "Concierge: plan pass calling {Model} ({Provider}), cap {Cap} tokens, thinking {Thinking}",
-                    provider.ModelId,
-                    profile.Provider,
-                    Math.Min(config.MaxOutputTokens, 800),
-                    ThinkingPolicy.For(config, ThinkingPass.Plan, profile) ? "on" : "off");
+                var pass = await RunPassAsync(
+                        ThinkingPass.Plan, "plan pass", profile, request, config, normalized, cancellationToken)
+                    .ConfigureAwait(false);
 
-                var stopwatch = Stopwatch.StartNew();
-                var result = await provider.CompleteAsync(request, deadline.Token).ConfigureAwait(false);
-                stopwatch.Stop();
+                calls.Add(Record(QueryPass.Plan, pass.Profile, pass.ModelId, pass.Result, pass.Timer));
 
-                _logger.LogInformation(
-                    "Concierge: plan pass answered in {Ms}ms — {Out} token(s), {Think} thinking",
-                    stopwatch.ElapsedMilliseconds,
-                    result.OutputTokens,
-                    result.ThinkingTokens);
-
-                calls.Add(Record(QueryPass.Plan, profile, provider.ModelId, result, stopwatch));
-                return (PlanParser.Parse(result.Text, query), null);
+                return (
+                    PlanParser.Parse(pass.Result.Text, query),
+                    pass.FellBackFrom is null
+                        ? null
+                        : $"the planning model {pass.FellBackFrom} failed; {pass.ModelId} answered instead");
             }
             catch (OperationCanceledException) when (NotTheCallersDoing(cancellationToken))
             {
@@ -667,14 +788,9 @@ namespace Jellyfin.Plugin.Concierge.Services
             List<QueryCallRecord> calls,
             CancellationToken cancellationToken)
         {
-            using var deadline = QueryDeadline(config, cancellationToken);
-
             try
             {
                 var profile = ModelProfiles.Resolve(normalized, config.RerankModelProfileId);
-                var provider = _llmFactory.Create(
-                    profile,
-                    ThinkingPolicy.For(config, ThinkingPass.Rerank, profile));
 
                 // The candidate list changes every query, so there is nothing a later
                 // call could read back from a cache — everything goes in the prefix and
@@ -696,29 +812,18 @@ namespace Jellyfin.Plugin.Concierge.Services
                     RerankCap(config),
                     ResponseShape.Rerank);
 
-                _logger.LogInformation(
-                    "Concierge: re-rank calling {Model} ({Provider}) on {Items} item(s), cap {Cap} tokens, "
-                    + "thinking {Thinking}",
-                    provider.ModelId,
-                    profile.Provider,
-                    shortlist.Count,
-                    RerankCap(config),
-                    ThinkingPolicy.For(config, ThinkingPass.Rerank, profile) ? "on" : "off");
+                var pass = await RunPassAsync(
+                        ThinkingPass.Rerank, "re-rank", profile, request, config, normalized, cancellationToken)
+                    .ConfigureAwait(false);
 
-                var stopwatch = Stopwatch.StartNew();
-                var result = await provider.CompleteAsync(request, deadline.Token).ConfigureAwait(false);
-                stopwatch.Stop();
+                calls.Add(Record(QueryPass.Rerank, pass.Profile, pass.ModelId, pass.Result, pass.Timer));
 
-                _logger.LogInformation(
-                    "Concierge: re-rank answered in {Ms}ms — {Out} token(s), {Think} thinking, truncated {Trunc}",
-                    stopwatch.ElapsedMilliseconds,
-                    result.OutputTokens,
-                    result.ThinkingTokens,
-                    result.Truncated);
+                if (pass.FellBackFrom is not null)
+                {
+                    reportFailure($"the re-ranking model {pass.FellBackFrom} failed; {pass.ModelId} answered instead");
+                }
 
-                calls.Add(Record(QueryPass.Rerank, profile, provider.ModelId, result, stopwatch));
-
-                var outcome = RerankParser.Parse(result.Text, shortlist.Count);
+                var outcome = RerankParser.Parse(pass.Result.Text, shortlist.Count);
 
                 if (outcome.Invented > 0 || outcome.Omitted > 0)
                 {
@@ -747,7 +852,7 @@ namespace Jellyfin.Plugin.Concierge.Services
             {
                 // The fused order is a perfectly good answer. Slightly worse, free.
                 _logger.LogWarning(ex, "Concierge: the re-rank pass failed; serving the fused order");
-                reportFailure(Describe(ex));
+                reportFailure("the re-ranking model is not answering — " + Describe(ex));
                 return null;
             }
         }
