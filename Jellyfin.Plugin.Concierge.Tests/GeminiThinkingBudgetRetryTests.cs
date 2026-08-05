@@ -278,6 +278,38 @@ namespace Jellyfin.Plugin.Concierge.Tests
         }
 
         [Fact]
+        public async Task ChangingTheConfiguredBudget_DoesNotInheritTheOldRungsMeaning()
+        {
+            // Observed live. 128 was accepted from the ladder [0, 128, omit]; a budget
+            // of 100 was then configured, making it [100, omit]; and a remembered
+            // *index* of 1 silently became "omit" — so the new setting was skipped on
+            // its first call and the model reasoned without a limit.
+            const string model = "gemini-t-rungshift";
+
+            var discover = new RecordingHandler(
+                (HttpStatusCode.BadRequest, Refusal),
+                (HttpStatusCode.OK, Ok));
+            using (var a = new HttpClient(discover))
+            {
+                await new GoogleProvider(a, model, "key", null, false, NoDelay)
+                    .CompleteAsync(Request, CancellationToken.None);
+            }
+
+            Assert.Equal(128, Budget(discover.Bodies[1]));
+
+            // Same model, now with a configured budget: the ladder is a different shape.
+            var configured = new RecordingHandler((HttpStatusCode.OK, Ok));
+            using (var b = new HttpClient(configured))
+            {
+                await new GoogleProvider(b, model, "key", null, false, NoDelay, configuredThinkingBudget: 100)
+                    .CompleteAsync(Request, CancellationToken.None);
+            }
+
+            // The configured number is honoured, not skipped for "no limit".
+            Assert.Equal(100, Budget(configured.Bodies[0]));
+        }
+
+        [Fact]
         public async Task AWorkingModel_IsUnaffected()
         {
             // gemini-3.5-flash accepts the budget. Nothing about this path may change

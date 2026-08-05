@@ -48,7 +48,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         /// comment on the old field promised would not happen. Keyed by model, because
         /// that is what the constraint belongs to.
         /// </remarks>
-        private static readonly ConcurrentDictionary<string, int> AcceptedRung = new(StringComparer.Ordinal);
+        private static readonly ConcurrentDictionary<string, int> AcceptedBudget = new(StringComparer.Ordinal);
 
         /// <summary>The budgets to try, in order. The last is always <see cref="Omit"/>.</summary>
         private readonly int[] _ladder;
@@ -173,7 +173,7 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 // Remembered against the model, so the next query starts here instead
                 // of repeating the discovery. Only after an attempt has actually
                 // worked - see the note on AcceptedRung.
-                AcceptedRung[ModelId] = reached;
+                AcceptedBudget[ModelId] = _ladder[reached];
 
                 _logger?.LogInformation(
                     "Concierge: {Model} accepted {Accepted}; later calls will start there",
@@ -199,10 +199,30 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
         /// <param name="message">The failure message.</param>
         /// <returns>Whether it was an HTTP 400.</returns>
         /// <summary>Where this model is known to have settled, or the start of the ladder.</summary>
+        /// <remarks>
+        /// <b>Keyed on the budget itself, never on its position.</b> Caching the rung
+        /// index looked equivalent and was not: the ladder's shape depends on
+        /// configuration, so changing the configured budget silently reinterprets a
+        /// remembered index. Observed here — 128 was accepted as rung 1 of
+        /// [0, 128, omit], a budget of 100 was then configured making the ladder
+        /// [100, omit], and rung 1 now meant <em>omit</em>. The new setting was skipped
+        /// on its very first call and the model went straight back to reasoning without
+        /// a limit.
+        /// <para>
+        /// A remembered budget that is no longer on the ladder simply starts over,
+        /// which costs one negotiation and is the honest answer to "you changed the
+        /// question".
+        /// </para>
+        /// </remarks>
         private int Rung()
         {
-            var known = AcceptedRung.TryGetValue(ModelId, out var rung) ? rung : 0;
-            return known >= _ladder.Length ? _ladder.Length - 1 : known;
+            if (!AcceptedBudget.TryGetValue(ModelId, out var budget))
+            {
+                return 0;
+            }
+
+            var index = Array.IndexOf(_ladder, budget);
+            return index < 0 ? 0 : index;
         }
 
         /// <summary>Names a rung for a log line somebody has to read at 3am.</summary>
