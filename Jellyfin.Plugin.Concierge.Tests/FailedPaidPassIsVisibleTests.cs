@@ -209,6 +209,87 @@ namespace Jellyfin.Plugin.Concierge.Tests
             return (service, log);
         }
 
+        /// <summary>Records the cap each pass asked for.</summary>
+        private sealed class CapRecordingLlmFactory : ILlmProviderFactory
+        {
+            public System.Collections.Generic.List<(ResponseShape Shape, int Cap)> Caps { get; } = [];
+
+            public ILlmProvider Create(PluginConfiguration config) => new Recorder(Caps);
+
+            public ILlmProvider Create(ModelProfile profile, bool globalEnableThinking) => new Recorder(Caps);
+
+            private sealed class Recorder : ILlmProvider
+            {
+                private readonly System.Collections.Generic.List<(ResponseShape, int)> _caps;
+
+                public Recorder(System.Collections.Generic.List<(ResponseShape, int)> caps) => _caps = caps;
+
+                public string ModelId => "cap-recorder";
+
+                public Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct)
+                {
+                    lock (_caps)
+                    {
+                        _caps.Add((request.Shape, request.MaxOutputTokens));
+                    }
+
+                    throw new InvalidOperationException("recorded; the answer is not the point");
+                }
+            }
+        }
+
+        [Fact]
+        public async Task TheRerankCap_IsIndependentOfTheEnrichmentOne()
+        {
+            // One number used to serve both, and they want it moved in opposite
+            // directions: a truncated enrichment batch loses ten items, a truncated
+            // re-rank loses nothing because the fused order stands. Sharing it let a
+            // single search emit 29,982 tokens.
+            var factory = new CapRecordingLlmFactory();
+            var config = Config();
+            config.MaxOutputTokens = 30000;
+            config.RerankMaxOutputTokens = 4000;
+
+            var service = new SearchService(
+                new StubIndexStore(BuildIndex()),
+                new WorkingEmbeddings(),
+                factory,
+                new RecordingQueryLog(),
+                new NullSpendStore(),
+                new QuoteIndexProvider(new EmptyQuoteStore(), NullLogger<QuoteIndexProvider>.Instance),
+                NullLogger<SearchService>.Instance);
+
+            await service.SearchAsync("something dark and twisted", null, config, CancellationToken.None);
+
+            var rerank = Assert.Single(factory.Caps, c => c.Shape == ResponseShape.Rerank);
+            Assert.Equal(4000, rerank.Cap);
+            Assert.NotEqual(config.MaxOutputTokens, rerank.Cap);
+        }
+
+        [Fact]
+        public async Task AnInstallSavedBeforeTheSetting_KeepsTheSharedCap()
+        {
+            // Zero means "saved before this existed". Silently acquiring a ceiling
+            // would be a behaviour change nobody asked for on upgrade.
+            var factory = new CapRecordingLlmFactory();
+            var config = Config();
+            config.MaxOutputTokens = 9000;
+            config.RerankMaxOutputTokens = 0;
+
+            var service = new SearchService(
+                new StubIndexStore(BuildIndex()),
+                new WorkingEmbeddings(),
+                factory,
+                new RecordingQueryLog(),
+                new NullSpendStore(),
+                new QuoteIndexProvider(new EmptyQuoteStore(), NullLogger<QuoteIndexProvider>.Instance),
+                NullLogger<SearchService>.Instance);
+
+            await service.SearchAsync("something dark and twisted", null, config, CancellationToken.None);
+
+            Assert.Equal(9000, Assert.Single(factory.Caps, c => c.Shape == ResponseShape.Rerank).Cap);
+        }
+
         [Fact]
         public async Task AModelThatTimesOut_DegradesInsteadOfFailingTheWholeSearch()
         {

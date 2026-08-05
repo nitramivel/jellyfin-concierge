@@ -239,6 +239,33 @@ namespace Jellyfin.Plugin.Concierge.Configuration
         public int QueryTimeoutSeconds { get; set; } = 30;
 
         /// <summary>
+        /// Gets or sets the output cap for the re-rank pass, independently of
+        /// index-time enrichment.
+        /// </summary>
+        /// <remarks>
+        /// <b>The two passes want the cap moved in opposite directions.</b> An
+        /// enrichment batch of ten items, each returning a premise, moments, themes and
+        /// a dozen asks, genuinely runs to thousands of tokens — and truncating it
+        /// loses the whole batch, measured here as ten items lost to one cut response.
+        /// So enrichment argues for headroom.
+        /// <para>
+        /// A re-rank returns thirty indices and a handful of short reasons: a few
+        /// hundred tokens. And truncating it costs almost nothing, because hard rule 7
+        /// leaves the fused order in place when the response is unusable. So re-rank
+        /// argues for a ceiling.
+        /// </para>
+        /// <para>
+        /// While one number served both, raising it for enrichment let a single search
+        /// emit 29,982 output tokens and run for 102 seconds at a cost of $0.23. The
+        /// plan pass has had its own ceiling from the start for the same reason; this
+        /// gives the re-rank one too. Sized to clear a re-rank that is allowed to
+        /// think — the largest legitimate one observed here was 2,259 tokens — while
+        /// bounding the runaway.
+        /// </para>
+        /// </remarks>
+        public int RerankMaxOutputTokens { get; set; } = 4000;
+
+        /// <summary>
         /// Gets or sets how many generated phrasings are kept per item.
         /// </summary>
         /// <remarks>

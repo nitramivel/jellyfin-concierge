@@ -891,6 +891,20 @@
                     </div>
 
                     <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="RerankMaxOutputTokens">Re-rank output cap (tokens)</label>
+                        <input id="RerankMaxOutputTokens" type="number" step="100" min="0" max="100000" class="emby-input" />
+                        <div class="fieldDescription">
+                            Separate from the enrichment cap below, because the two want it moved in opposite
+                            directions. A re-rank returns thirty indices and a few short reasons &mdash; a few
+                            hundred tokens &mdash; and cutting it off costs almost nothing, because an unusable
+                            response leaves the fused order in place. An enrichment batch genuinely needs
+                            thousands, and cutting <em>that</em> off loses every item in the batch. While one
+                            number served both, a single search here emitted 29,982 tokens and ran for 102
+                            seconds. 0 falls back to the shared cap.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="QueryTimeoutSeconds">Give up on a model after (seconds)</label>
                         <input id="QueryTimeoutSeconds" type="number" step="1" min="0" max="600" class="emby-input" />
                         <div class="fieldDescription">
@@ -1413,6 +1427,8 @@
                 page.querySelector('#EnrichmentBatchSize').value = config.EnrichmentBatchSize || 12;
                 page.querySelector('#EnrichmentConcurrency').value = config.EnrichmentConcurrency || 1;
                 page.querySelector('#QuoteWindowWords').value = config.QuoteWindowWords || 40;
+                page.querySelector('#RerankMaxOutputTokens').value =
+                    config.RerankMaxOutputTokens === undefined ? 4000 : config.RerankMaxOutputTokens;
                 page.querySelector('#QueryTimeoutSeconds').value =
                     config.QueryTimeoutSeconds === undefined ? 30 : config.QueryTimeoutSeconds;
                 page.querySelector('#EmbeddingBatchSize').value = config.EmbeddingBatchSize || 64;
@@ -1480,6 +1496,12 @@
                     config.EnrichmentBatchSize = parseInt(page.querySelector('#EnrichmentBatchSize').value, 10) || 12;
                     config.EnrichmentConcurrency = parseInt(page.querySelector('#EnrichmentConcurrency').value, 10) || 1;
                     config.QuoteWindowWords = parseInt(page.querySelector('#QuoteWindowWords').value, 10) || 40;
+                    config.RerankMaxOutputTokens =
+                        parseInt(page.querySelector('#RerankMaxOutputTokens').value, 10);
+                    if (isNaN(config.RerankMaxOutputTokens)) {
+                        config.RerankMaxOutputTokens = 4000;
+                    }
+
                     config.QueryTimeoutSeconds = parseInt(page.querySelector('#QueryTimeoutSeconds').value, 10);
                     if (isNaN(config.QueryTimeoutSeconds)) {
                         config.QueryTimeoutSeconds = 30;

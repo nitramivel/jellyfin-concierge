@@ -474,6 +474,20 @@ namespace Jellyfin.Plugin.Concierge.Services
         }
 
         /// <summary>
+        /// The re-rank's output cap, falling back to the shared one when unset.
+        /// </summary>
+        /// <param name="config">The configuration.</param>
+        /// <returns>The cap to send.</returns>
+        /// <remarks>
+        /// Zero or negative means an install saved before this setting existed, which
+        /// must keep behaving as it did rather than silently acquiring a ceiling.
+        /// </remarks>
+        private static int RerankCap(PluginConfiguration config)
+            => config.RerankMaxOutputTokens > 0
+                ? config.RerankMaxOutputTokens
+                : config.MaxOutputTokens;
+
+        /// <summary>
         /// Whether a cancellation was something giving up rather than the caller leaving.
         /// </summary>
         /// <param name="caller">The request's own token.</param>
@@ -665,7 +679,9 @@ namespace Jellyfin.Plugin.Concierge.Services
                     RerankPromptBuilder.SystemPrompt,
                     prompt,
                     string.Empty,
-                    config.MaxOutputTokens,
+
+                    // Its own cap, not enrichment's. See RerankMaxOutputTokens.
+                    RerankCap(config),
                     ResponseShape.Rerank);
 
                 _logger.LogInformation(
@@ -674,7 +690,7 @@ namespace Jellyfin.Plugin.Concierge.Services
                     provider.ModelId,
                     profile.Provider,
                     shortlist.Count,
-                    config.MaxOutputTokens,
+                    RerankCap(config),
                     ThinkingPolicy.For(config, ThinkingPass.Rerank, profile) ? "on" : "off");
 
                 var stopwatch = Stopwatch.StartNew();
