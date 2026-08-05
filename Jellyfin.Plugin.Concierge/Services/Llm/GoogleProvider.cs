@@ -259,7 +259,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                 },
                 (status, body) => $"Google API returned {(int)status}: {Truncate(body)}",
                 _initialRetryDelay,
-                cancellationToken);
+                cancellationToken,
+                _logger,
+                ModelId);
         }
 
         private object BuildRequestBody(LlmRequest request, int thinkingBudget)

@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using Microsoft.Extensions.Logging;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -56,7 +57,9 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
             Func<HttpRequestMessage> buildRequest,
             Func<HttpStatusCode, string, string> describeFailure,
             TimeSpan? initialDelay,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            ILogger? logger = null,
+            string? what = null)
         {
             ArgumentNullException.ThrowIfNull(httpClient);
             ArgumentNullException.ThrowIfNull(buildRequest);
@@ -95,7 +98,23 @@ namespace Jellyfin.Plugin.Concierge.Services.Llm
                     wait = delay;
                 }
 
-                await Task.Delay(wait > MaxDelay ? MaxDelay : wait, cancellationToken).ConfigureAwait(false);
+                var slept = wait > MaxDelay ? MaxDelay : wait;
+
+                // <b>Said out loud, because a successful retry used to leave no trace
+                // at all.</b> The waits are counted inside the caller's own duration,
+                // so a throttled call is indistinguishable from a slow one: 85 output
+                // tokens took 83 seconds on this server and nothing anywhere recorded
+                // why. Only an exhausted retry ever surfaced, and by then the answer
+                // was lost anyway.
+                logger?.LogWarning(
+                    "Concierge: {What} returned {Status}; waiting {Seconds:F1}s then retrying (attempt {Attempt} of {Max})",
+                    what ?? "an upstream call",
+                    (int)response.StatusCode,
+                    slept.TotalSeconds,
+                    attempt,
+                    MaxAttempts);
+
+                await Task.Delay(slept, cancellationToken).ConfigureAwait(false);
                 delay += delay;
             }
         }

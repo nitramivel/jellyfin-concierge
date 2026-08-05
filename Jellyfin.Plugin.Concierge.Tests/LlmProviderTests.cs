@@ -406,3 +406,74 @@ namespace Jellyfin.Plugin.Concierge.Tests
         }
     }
 }
+
+namespace Jellyfin.Plugin.Concierge.Tests
+{
+    /// <summary>
+    /// A throttled call must say so, because its waiting is billed to the caller's
+    /// clock and looks exactly like a slow model.
+    /// </summary>
+    /// <remarks>
+    /// Observed on the owner's server: a re-rank returned 85 output tokens in 83
+    /// seconds — one token per second, against 145 a moment earlier. Nothing in any log
+    /// said whether that was backoff or a slow response, because a retry that
+    /// eventually succeeded wrote nothing at all and only an exhausted one ever threw.
+    /// </remarks>
+    public class TransientRetryIsAudibleTests
+    {
+        private sealed class CountingLogger : Microsoft.Extensions.Logging.ILogger
+        {
+            public System.Collections.Generic.List<string> Lines { get; } = [];
+
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                Microsoft.Extensions.Logging.LogLevel logLevel,
+                Microsoft.Extensions.Logging.EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+                => Lines.Add(formatter(state, exception));
+        }
+
+        [Fact]
+        public async Task ARetriedCall_SaysWhyItTookSoLong()
+        {
+            var handler = new SequenceHandler(
+                new Reply(System.Net.HttpStatusCode.TooManyRequests, "{}", RetryAfterSeconds: 1),
+                new Reply(System.Net.HttpStatusCode.OK, GoogleOkBody));
+
+            using var client = new HttpClient(handler);
+            var logger = new CountingLogger();
+            var provider = new GoogleProvider(
+                client, "gemini-throttled", "key", null, true,
+                TimeSpan.FromMilliseconds(1), logger: null);
+
+            // Routed through the retry helper directly, since the provider only takes a
+            // typed logger — the behaviour under test belongs to the helper.
+            var body = await Jellyfin.Plugin.Concierge.Services.Llm.TransientHttpRetry.SendAsync(
+                client,
+                () => new HttpRequestMessage(HttpMethod.Post, "http://localhost/x"),
+                (status, b) => $"failed {(int)status}",
+                TimeSpan.FromMilliseconds(1),
+                System.Threading.CancellationToken.None,
+                logger,
+                "gemini-throttled");
+
+            Assert.NotNull(body);
+            var line = Assert.Single(logger.Lines);
+            Assert.Contains("gemini-throttled", line, StringComparison.Ordinal);
+            Assert.Contains("429", line, StringComparison.Ordinal);
+            Assert.Contains("retrying", line, StringComparison.Ordinal);
+        }
+
+        private const string GoogleOkBody =
+            """
+            {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"ok"}]}}],
+             "usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1}}
+            """;
+    }
+}
