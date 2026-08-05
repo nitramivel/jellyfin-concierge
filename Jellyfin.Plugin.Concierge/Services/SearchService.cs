@@ -296,6 +296,12 @@ namespace Jellyfin.Plugin.Concierge.Services
                 }
             }
 
+            _logger.LogDebug(
+                "Concierge: retrieval for {Route} — {Lexical} keyword, {Vector} semantic hit(s)",
+                decision.Route,
+                lexical.Count,
+                vector.Count);
+
             var fused = RankFusion.Fuse(lexical, vector);
             var byId = index.Documents.ToDictionary(d => d.ItemId);
 
@@ -467,9 +473,28 @@ namespace Jellyfin.Plugin.Concierge.Services
             return source;
         }
 
-        /// <summary>Whether a cancellation was our deadline rather than the caller leaving.</summary>
-        private static bool TimedOut(CancellationToken caller, CancellationTokenSource deadline)
-            => deadline.IsCancellationRequested && !caller.IsCancellationRequested;
+        /// <summary>
+        /// Whether a cancellation was something giving up rather than the caller leaving.
+        /// </summary>
+        /// <param name="caller">The request's own token.</param>
+        /// <returns>True when nobody asked for this and it should degrade.</returns>
+        /// <remarks>
+        /// <b>Deliberately not tied to our own deadline.</b> There are at least three
+        /// ways a model call ends in an <see cref="OperationCanceledException"/> and
+        /// only one of them means "stop": our query deadline, the HttpClient's own ten
+        /// minute timeout — which throws <see cref="TaskCanceledException"/>, a
+        /// cancellation by inheritance — and the caller actually going away.
+        /// <para>
+        /// Both passes used to exclude every cancellation from their catch, so the
+        /// first two escaped the degrade path and left the search as an unhandled
+        /// exception. Observed as <c>Error processing request: "The operation was
+        /// canceled"</c> on <c>POST /Concierge/Search</c>, which the client shows as a
+        /// failed search — for a pipeline that had already produced free results and
+        /// was required by hard rule 4 to serve them.
+        /// </para>
+        /// </remarks>
+        private static bool NotTheCallersDoing(CancellationToken caller)
+            => !caller.IsCancellationRequested;
 
         private async Task<(SearchPlan Plan, string? Error)> RunPlanAsync(
             string query,
@@ -495,24 +520,39 @@ namespace Jellyfin.Plugin.Concierge.Services
                     Math.Min(config.MaxOutputTokens, 800),
                     ResponseShape.SearchPlan);
 
+                // Logged before the call, not after. A line that only appears on
+                // completion cannot tell you where a search is stuck, which is the one
+                // question worth asking while it is still running.
+                _logger.LogInformation(
+                    "Concierge: plan pass calling {Model} ({Provider}), cap {Cap} tokens, thinking {Thinking}",
+                    provider.ModelId,
+                    profile.Provider,
+                    Math.Min(config.MaxOutputTokens, 800),
+                    ThinkingPolicy.For(config, ThinkingPass.Plan, profile) ? "on" : "off");
+
                 var stopwatch = Stopwatch.StartNew();
                 var result = await provider.CompleteAsync(request, deadline.Token).ConfigureAwait(false);
                 stopwatch.Stop();
 
+                _logger.LogInformation(
+                    "Concierge: plan pass answered in {Ms}ms — {Out} token(s), {Think} thinking",
+                    stopwatch.ElapsedMilliseconds,
+                    result.OutputTokens,
+                    result.ThinkingTokens);
+
                 calls.Add(Record(QueryPass.Plan, profile, provider.ModelId, result, stopwatch));
                 return (PlanParser.Parse(result.Text, query), null);
             }
-            catch (OperationCanceledException) when (TimedOut(cancellationToken, deadline))
+            catch (OperationCanceledException) when (NotTheCallersDoing(cancellationToken))
             {
                 // Ours, not the caller's. A search that waits is still a search that
                 // has already answered for free.
                 _logger.LogWarning(
-                    "Concierge: the plan pass passed {Seconds}s and was abandoned; searching on the raw query",
+                    "Concierge: the plan pass was abandoned before it answered (deadline {Seconds}s); "
+                    + "searching on the raw query",
                     config.QueryTimeoutSeconds);
 
-                return (
-                    SearchPlan.Passthrough(query),
-                    $"gave up after {config.QueryTimeoutSeconds}s");
+                return (SearchPlan.Passthrough(query), "the planning model did not answer in time");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -628,9 +668,25 @@ namespace Jellyfin.Plugin.Concierge.Services
                     config.MaxOutputTokens,
                     ResponseShape.Rerank);
 
+                _logger.LogInformation(
+                    "Concierge: re-rank calling {Model} ({Provider}) on {Items} item(s), cap {Cap} tokens, "
+                    + "thinking {Thinking}",
+                    provider.ModelId,
+                    profile.Provider,
+                    shortlist.Count,
+                    config.MaxOutputTokens,
+                    ThinkingPolicy.For(config, ThinkingPass.Rerank, profile) ? "on" : "off");
+
                 var stopwatch = Stopwatch.StartNew();
                 var result = await provider.CompleteAsync(request, deadline.Token).ConfigureAwait(false);
                 stopwatch.Stop();
+
+                _logger.LogInformation(
+                    "Concierge: re-rank answered in {Ms}ms — {Out} token(s), {Think} thinking, truncated {Trunc}",
+                    stopwatch.ElapsedMilliseconds,
+                    result.OutputTokens,
+                    result.ThinkingTokens,
+                    result.Truncated);
 
                 calls.Add(Record(QueryPass.Rerank, profile, provider.ModelId, result, stopwatch));
 
@@ -649,13 +705,14 @@ namespace Jellyfin.Plugin.Concierge.Services
 
                 return outcome;
             }
-            catch (OperationCanceledException) when (TimedOut(cancellationToken, deadline))
+            catch (OperationCanceledException) when (NotTheCallersDoing(cancellationToken))
             {
                 _logger.LogWarning(
-                    "Concierge: the re-rank pass passed {Seconds}s and was abandoned; serving the fused order",
+                    "Concierge: the re-rank pass was abandoned before it answered (deadline {Seconds}s); "
+                    + "serving the fused order",
                     config.QueryTimeoutSeconds);
 
-                reportFailure($"gave up after {config.QueryTimeoutSeconds}s");
+                reportFailure("the re-ranking model did not answer in time");
                 return null;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

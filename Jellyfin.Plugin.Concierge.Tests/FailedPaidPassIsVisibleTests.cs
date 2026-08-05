@@ -53,6 +53,22 @@ namespace Jellyfin.Plugin.Concierge.Tests
             }
         }
 
+        /// <summary>Ends the way an HttpClient timeout does: cancelled, by nobody.</summary>
+        private sealed class TimingOutLlmFactory : ILlmProviderFactory
+        {
+            public ILlmProvider Create(PluginConfiguration config) => new Stalled();
+
+            public ILlmProvider Create(ModelProfile profile, bool globalEnableThinking) => new Stalled();
+
+            private sealed class Stalled : ILlmProvider
+            {
+                public string ModelId => "stalled-model";
+
+                public Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct)
+                    => throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout");
+            }
+        }
+
         private sealed class WorkingEmbeddings : IEmbeddingProviderFactory
         {
             public IEmbeddingProvider Create(PluginConfiguration config) => new Embedder();
@@ -191,6 +207,55 @@ namespace Jellyfin.Plugin.Concierge.Tests
                 NullLogger<SearchService>.Instance);
 
             return (service, log);
+        }
+
+        [Fact]
+        public async Task AModelThatTimesOut_DegradesInsteadOfFailingTheWholeSearch()
+        {
+            // An HttpClient timeout throws TaskCanceledException, which is an
+            // OperationCanceledException — and both passes used to exclude every
+            // cancellation from their catch. So a timeout escaped the degrade path and
+            // surfaced as `Error processing request: "The operation was canceled"` on
+            // POST /Concierge/Search: a failed search, for a pipeline that had already
+            // produced free results and is required by hard rule 4 to serve them.
+            var log = new RecordingQueryLog();
+            var service = new SearchService(
+                new StubIndexStore(BuildIndex()),
+                new WorkingEmbeddings(),
+                new TimingOutLlmFactory(),
+                log,
+                new NullSpendStore(),
+                new QuoteIndexProvider(new EmptyQuoteStore(), NullLogger<QuoteIndexProvider>.Instance),
+                NullLogger<SearchService>.Instance);
+
+            var result = await service.SearchAsync(
+                "something dark and twisted", null, Config(), CancellationToken.None);
+
+            Assert.NotEmpty(result.Hits);
+            Assert.NotNull(result.Degraded);
+            Assert.Contains("in time", result.Degraded, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task WhenTheCallerGoesAway_TheSearchStops()
+        {
+            // The other side of the same rule. Nobody is waiting for this answer, so
+            // finishing it would be work for no one.
+            using var cts = new CancellationTokenSource();
+            await cts.CancelAsync();
+
+            var log = new RecordingQueryLog();
+            var service = new SearchService(
+                new StubIndexStore(BuildIndex()),
+                new WorkingEmbeddings(),
+                new TimingOutLlmFactory(),
+                log,
+                new NullSpendStore(),
+                new QuoteIndexProvider(new EmptyQuoteStore(), NullLogger<QuoteIndexProvider>.Instance),
+                NullLogger<SearchService>.Instance);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => service.SearchAsync("something dark and twisted", null, Config(), cts.Token));
         }
 
         [Fact]
