@@ -10,7 +10,7 @@
     "versions": [
       {
         "version": "0.34.0.0",
-        "changelog": "Adds a fallback model: when a search's model fails outright, the same request is tried once on another profile before settling for the unranked order. Four different failures hit this install in two days \u2014 a rejected request, an unreachable endpoint, an unreadable response and one that never answered \u2014 and each one silently cost the pass that was paid for. Point it at a different provider; a fallback sharing an outage with the primary is a slower way to fail. Fixes a per-request result limit quietly discarding most of your settings: the web client always sends one, and the copy it went through carried 29 of 45, so the whole re-rank shape ran on code defaults regardless of what you saved. On the search page, the loading cards now stay up while the paid answer is still coming instead of collapsing into 'no results', and Jellyfin's 'no results found' line is hidden whenever Concierge has matches rather than only in Concierge mode. Opening a Library item no longer scrolls the list to the top. The search box character limit is settable, so a sentence is not truncated mid-word. Cost fields accept any number and the search delay moves in 100ms steps. Folds in 0.32.0.0.",
+        "changelog": "The current build. Search survives a model that fails: a fallback profile is tried before giving up, and a rejected, unreachable, unreadable or unanswering model no longer silently costs the pass you paid for. Everything below, plus a settings page where what you save is what runs.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.34.0.0/concierge_0.34.0.0.zip",
         "checksum": "bcff9d4061e8f4505d4b12d5b10796ca",
@@ -18,23 +18,31 @@
       },
       {
         "version": "0.33.0.0",
-        "changelog": "Makes the OpenAI-compatible option actually usable, and takes about a third off a search. Compatible servers that send null where OpenAI sends an object no longer crash the response parser \u2014 one such server cost every re-rank it was pointed at. A response that stops mid-entry now keeps the entries it finished rather than discarding all of them: one unclosed brace was throwing away nine complete rankings, which matters because some endpoints refuse constrained decoding outright and will do this. The re-rank is asked for as many entries as you display rather than a fixed twenty, which on a ten-result page is roughly 440ms and half the pass's bill; set 'Ranked entries to ask for' to 20 to restore the old behaviour exactly. The re-rank also has its own output cap now, separate from enrichment's \u2014 the shared one let a single search emit 29,982 tokens and run for 102 seconds. Opening an item in the Library list no longer scrolls the list back to the top. Every cost field accepts any number, where the steppers had made some real provider prices impossible to enter. Folds in 0.32.0.0.",
+        "changelog": "The build where OpenAI-compatible endpoints became usable. Servers that answer with nulls where OpenAI sends objects no longer crash the parser, and a reply that stops mid-sentence keeps the rankings it finished instead of discarding all of them. Stop here if you want the compatible provider path without the fallback model above.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.33.0.0/concierge_0.33.0.0.zip",
         "checksum": "5108e0b6e4aeebd7c825e579004df36f",
         "timestamp": "2026-08-05T13:19:26Z"
       },
       {
-        "version": "0.18.0.0",
-        "changelog": "The search row is called Matches, sits above every other result row, and says whether it is searching or ranking. Concierge mode gives the whole page over to your own library at a toggle. The settings page is tabbed, with which-model-runs-which-pass leading the Models tab. Skeleton cards, a light sweep while the model ranks, and cards that slide into their ranked positions. Match reason length, how many results get one, and the wait before a paid search are all settings now. Folds in 0.14.0.0 through 0.17.0.0.",
+        "version": "0.28.0.0",
+        "changelog": "The last build of the interface era, before the work turned to providers and robustness. The search-box toggle turns Concierge off rather than rearranging it, the settings page is wide enough for the Models table, episodes can run on their own model, and the Library tab shows episodes under their show. Stop here if you want the finished interface on a single, well-behaved provider.",
         "targetAbi": "10.11.11.0",
-        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.18.0.0/concierge_0.18.0.0.zip",
-        "checksum": "4d50c5b0f35e30799bb8eec27eaddbc1",
-        "timestamp": "2026-08-02T11:09:11Z"
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.28.0.0/concierge_0.28.0.0.zip",
+        "checksum": "260aa86c98baabd15f0abac7e1b2cc66",
+        "timestamp": "2026-08-03T06:03:58Z"
+      },
+      {
+        "version": "0.23.0.0",
+        "changelog": "The build where the search box started working again. A stray brace had killed the injected client script from 0.18.0.0 through 0.22.0.0 \u2014 five releases where typing in Jellyfin's search box did nothing at all, while the settings page kept working and hid it. This is the first release after that, and the oldest one worth installing.",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.23.0.0/concierge_0.23.0.0.zip",
+        "checksum": "d829ec376c15a92d8ae9ea8ac44569c9",
+        "timestamp": "2026-08-02T22:33:15Z"
       },
       {
         "version": "0.13.0.0",
-        "changelog": "Results appear in about a millisecond: the free keyword answer paints immediately and the ranked one replaces it when it lands, so nothing waits on the model to show something real. Posters render, the row uses Jellyfin's own horizontal card shape, EnableThinking finally takes effect on OpenAI, and the result count is the model's judgement rather than a fixed twelve. Folds in 0.11.0.0 through 0.12.0.0.",
+        "changelog": "The build where results became instant. The free keyword answer paints in about a millisecond and the ranked one replaces it when it lands, so nothing waits on a model to show something real. Posters render, and turning thinking off finally took effect on OpenAI. Note the search-box script is broken from 0.18.0.0 to 0.22.0.0 \u2014 this is the last good build before that window.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.13.0.0/concierge_0.13.0.0.zip",
         "checksum": "1f2b01fca4ad9e13a7e1a556401298b1",
@@ -42,7 +50,7 @@
       },
       {
         "version": "0.10.1.0",
-        "changelog": "Results reach the Jellyfin search box as poster cards, above the Jellyseerr rows. Fixes an upgrade that silently did nothing \u2014 the client script URL never changed between releases and carried no cache headers, so browsers kept running the old one. Folds in 0.10.0.0.",
+        "changelog": "The build where results first reached the Jellyfin search box as poster cards, above the request rows. Also the fix for an upgrade that silently did nothing: the client script URL never changed between releases and carried no cache headers, so browsers kept running the old one.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.10.1.0/concierge_0.10.1.0.zip",
         "checksum": "ded0a604e5168222de32b5171524d9ff",
@@ -50,7 +58,7 @@
       },
       {
         "version": "0.9.0.0",
-        "changelog": "Everything before the search box: natural-language search over your library from the plugin's own page. Hybrid keyword and semantic retrieval, an enrichment pass that writes what each item is about, a plan pass that reads constraints out of a sentence, quote search over your own subtitles and lyrics, checkpointing so a cancelled index build loses nothing, and an append-only monthly query log with per-call costs. Folds in 0.2.0.0 through 0.8.0.0.",
+        "changelog": "Everything before the search box. Natural-language search over your library from the plugin's own page: hybrid keyword and semantic retrieval, an enrichment pass that writes what each item is about, a plan pass that reads constraints out of a sentence, quote search over your own subtitles and lyrics, checkpointing so a cancelled index build loses nothing, and an append-only query log with per-call costs.",
         "targetAbi": "10.11.11.0",
         "sourceUrl": "https://github.com/nitramivel/jellyfin-concierge/releases/download/v0.9.0.0/concierge_0.9.0.0.zip",
         "checksum": "f1377318b9141bfa4e28b15af124fc7d",
